@@ -1,0 +1,505 @@
+/**
+ * Sherpa-ONNX WebAssembly ASR Engine
+ * Lightweight local ASR using WebAssembly
+ */
+
+class SherpaASREngine {
+    constructor(config = {}) {
+        this.onResult = config.onResult || (() => {});
+        this.onError = config.onError || (() => {});
+        this.onStatusChange = config.onStatusChange || (() => {});
+        
+        this.isAvailableFlag = false;
+        this.isRecording = false;
+        
+        // Audio context and processing
+        this.audioCtx = null;
+        this.mediaStream = null;
+        this.recorder = null;
+        this.expectedSampleRate = 16000;
+        this.recordSampleRate = null;
+        
+        // Sherpa-ONNX components
+        this.vad = null;
+        this.buffer = null;
+        this.recognizer = null;
+        this.Module = null;
+        
+        // Result tracking
+        this.lastResult = '';
+        this.resultList = [];
+        this.printed = false;
+    }
+    
+    async init() {
+        try {
+            this.onStatusChange('Initializing Sherpa-ONNX WebAssembly...');
+            
+            // Check if required files exist
+            console.log('Checking Sherpa-ONNX files...');
+            if (!await this.checkRequiredFiles()) {
+                throw new Error('Required Sherpa-ONNX files not found');
+            }
+            console.log('All required files found');
+            
+            // Initialize WebAssembly module
+            console.log('Initializing WebAssembly module...');
+            await this.initWebAssembly();
+            console.log('WebAssembly module initialized');
+            
+            // Initialize audio context (but don't fail if this fails)
+            try {
+                console.log('Initializing audio context...');
+                await this.initAudioContext();
+                console.log('Audio context initialized');
+            } catch (audioError) {
+                console.warn('Audio context initialization failed:', audioError);
+                // We'll initialize audio context when recording starts
+            }
+            
+            this.isAvailableFlag = true;
+            this.onStatusChange('Sherpa-ONNX engine ready');
+            
+        } catch (error) {
+            console.error('Sherpa-ONNX initialization failed:', error);
+            this.isAvailableFlag = false;
+            this.onError(error);
+            throw error;
+        }
+    }
+    
+    async checkRequiredFiles() {
+        const basePath = './web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/';
+        const requiredFiles = [
+            'sherpa-onnx-wasm-main-vad-asr.wasm',
+            'sherpa-onnx-wasm-main-vad-asr.js',
+            'sherpa-onnx-asr.js',
+            'sherpa-onnx-vad.js'
+        ];
+        
+        console.log(`Checking Sherpa-ONNX files in: ${basePath}`);
+        
+        // Check if we can access the directory first
+        try {
+            const dirResponse = await fetch(basePath, { method: 'HEAD' });
+            if (!dirResponse.ok) {
+                console.warn(`Cannot access Sherpa directory: ${basePath} (Status: ${dirResponse.status})`);
+                console.log('Make sure the web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small directory is accessible from the web server');
+                return false;
+            }
+        } catch (error) {
+            console.warn(`Cannot access Sherpa directory: ${basePath}`, error);
+            return false;
+        }
+        
+        for (const file of requiredFiles) {
+            try {
+                const response = await fetch(basePath + file, { method: 'HEAD' });
+                if (!response.ok) {
+                    console.warn(`Required file not found: ${basePath}${file} (Status: ${response.status})`);
+                    if (file.endsWith('.wasm')) {
+                        console.log('💡 Tip: WASM files must be served with correct MIME type (application/wasm)');
+                    }
+                    return false;
+                }
+                console.log(`✓ Found: ${file}`);
+            } catch (error) {
+                console.warn(`Failed to check file: ${basePath}${file}`, error);
+                return false;
+            }
+        }
+        
+        console.log('✅ All Sherpa-ONNX files found');
+        return true;
+    }
+    
+    async initWebAssembly() {
+        return new Promise(async (resolve, reject) => {
+            try {
+                // Load required scripts first
+                await this.loadSherpaScripts();
+                
+                // Wait for scripts to initialize
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+                // The Emscripten-generated JS should have set up the global Module
+                // Let's create our own Module configuration
+                const SherpaModule = {
+                    locateFile: (path, scriptDirectory = '') => {
+                        console.log(`Locating file: ${path}, scriptDirectory: ${scriptDirectory}`);
+                        const basePath = './web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/';
+                        return basePath + path;
+                    },
+                    
+                    setStatus: (status) => {
+                        console.log(`Sherpa module status: ${status}`);
+                        if (status === 'Running...') {
+                            this.onStatusChange('Sherpa-ONNX model loaded and running');
+                        }
+                    },
+                    
+                    onRuntimeInitialized: () => {
+                        try {
+                            console.log('Sherpa-ONNX WebAssembly runtime initialized');
+                            
+                            // Store the module reference
+                            this.Module = SherpaModule;
+                            
+                            // Wait a bit more for all functions to be available
+                            setTimeout(() => {
+                                try {
+                                    // Check if functions are available
+                                    if (typeof createVad === 'undefined' || 
+                                        typeof CircularBuffer === 'undefined' || 
+                                        typeof OfflineRecognizer === 'undefined') {
+                                        throw new Error('Required Sherpa-ONNX functions not available');
+                                    }
+                                    
+                                    // Initialize components
+                                    this.vad = createVad(SherpaModule);
+                                    console.log('VAD created');
+                                    
+                                    this.buffer = new CircularBuffer(30 * 16000, SherpaModule);
+                                    console.log('Circular buffer created');
+                                    
+                                    this.initOfflineRecognizer();
+                                    console.log('Offline recognizer initialized');
+                                    
+                                    resolve();
+                                } catch (componentError) {
+                                    console.error('Error initializing Sherpa components:', componentError);
+                                    reject(componentError);
+                                }
+                            }, 100);
+                            
+                        } catch (error) {
+                            console.error('Error in onRuntimeInitialized:', error);
+                            reject(error);
+                        }
+                    }
+                };
+                
+                // Set the global Module object before the WebAssembly loads
+                window.Module = SherpaModule;
+                
+                // Check if the WebAssembly module is already loading/loaded
+                if (typeof Module !== 'undefined' && Module.ready) {
+                    // Module is already ready, trigger initialization
+                    setTimeout(() => SherpaModule.onRuntimeInitialized(), 100);
+                } else {
+                    // Set a timeout in case the module doesn't initialize
+                    setTimeout(() => {
+                        if (!this.Module) {
+                            console.error('WebAssembly module failed to initialize within timeout');
+                            reject(new Error('WebAssembly initialization timeout'));
+                        }
+                    }, 10000); // 10 second timeout
+                }
+                
+            } catch (error) {
+                console.error('Error in initWebAssembly:', error);
+                reject(error);
+            }
+        });
+    }
+    
+    async loadSherpaScripts() {
+        const basePath = './web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/';
+        
+        // Load scripts in order - VAD and ASR modules first, then the main WebAssembly loader
+        const scripts = [
+            'sherpa-onnx-asr.js',
+            'sherpa-onnx-vad.js'
+        ];
+        
+        // Load the first two scripts
+        for (const script of scripts) {
+            if (!this.isScriptLoaded(script)) {
+                console.log(`Loading script: ${script}`);
+                await this.loadScript(basePath + script);
+            }
+        }
+        
+        // Load the main WebAssembly script last, as it will trigger module loading
+        if (!this.isScriptLoaded('sherpa-onnx-wasm-main-vad-asr.js')) {
+            console.log('Loading main WebAssembly script...');
+            await this.loadScript(basePath + 'sherpa-onnx-wasm-main-vad-asr.js');
+        }
+    }
+    
+    isScriptLoaded(scriptName) {
+        const scripts = document.getElementsByTagName('script');
+        for (let script of scripts) {
+            if (script.src.includes(scriptName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    loadScript(src) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = () => {
+                console.log(`Loaded script: ${src}`);
+                resolve();
+            };
+            script.onerror = (error) => {
+                console.error(`Failed to load script: ${src}`, error);
+                reject(error);
+            };
+            document.head.appendChild(script);
+        });
+    }
+    
+    createVad(Module) {
+        // Use the global createVad function from sherpa-onnx-vad.js
+        if (typeof createVad === 'undefined') {
+            throw new Error('createVad function not available');
+        }
+        return createVad(Module);
+    }
+    
+    initOfflineRecognizer() {
+        if (typeof OfflineRecognizer === 'undefined') {
+            throw new Error('OfflineRecognizer not available');
+        }
+        
+        let config = {
+            modelConfig: {
+                debug: 1,
+                tokens: './web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/tokens.txt',
+            },
+        };
+        
+        // For this demo, we'll assume the paraformer model is available
+        // In a real implementation, you might want to check for model files
+        config.modelConfig.paraformer = {
+            model: './web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/paraformer.onnx',
+        };
+        
+        try {
+            this.recognizer = new OfflineRecognizer(config, this.Module);
+            console.log('OfflineRecognizer created successfully');
+        } catch (error) {
+            console.error('Failed to create OfflineRecognizer:', error);
+            throw error;
+        }
+    }
+    
+    fileExists(filename) {
+        if (!this.Module) return false;
+        
+        const basePath = './web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/';
+        const fullPath = basePath + filename;
+        
+        const filenameLen = this.Module.lengthBytesUTF8(fullPath) + 1;
+        const buffer = this.Module._malloc(filenameLen);
+        this.Module.stringToUTF8(fullPath, buffer, filenameLen);
+        
+        let exists = this.Module._SherpaOnnxFileExists(buffer);
+        
+        this.Module._free(buffer);
+        
+        return exists;
+    }
+    
+    async initAudioContext() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('getUserMedia not supported');
+        }
+        
+        const constraints = { audio: true };
+        
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        if (!this.audioCtx) {
+            this.audioCtx = new AudioContext({ sampleRate: this.expectedSampleRate });
+        }
+        
+        this.recordSampleRate = this.audioCtx.sampleRate;
+        console.log('Audio sample rate:', this.recordSampleRate);
+        
+        // Create media stream source
+        this.mediaStream = this.audioCtx.createMediaStreamSource(stream);
+        
+        // Create script processor
+        const bufferSize = 4096;
+        const numberOfInputChannels = 1;
+        const numberOfOutputChannels = 2;
+        
+        if (this.audioCtx.createScriptProcessor) {
+            this.recorder = this.audioCtx.createScriptProcessor(
+                bufferSize, numberOfInputChannels, numberOfOutputChannels);
+        } else {
+            this.recorder = this.audioCtx.createJavaScriptNode(
+                bufferSize, numberOfInputChannels, numberOfOutputChannels);
+        }
+        
+        // Setup audio processing
+        this.recorder.onaudioprocess = (e) => {
+            this.processAudio(e);
+        };
+    }
+    
+    processAudio(e) {
+        if (!this.isRecording) return;
+        
+        let samples = new Float32Array(e.inputBuffer.getChannelData(0));
+        samples = this.downsampleBuffer(samples, this.expectedSampleRate);
+        
+        this.buffer.push(samples);
+        
+        while (this.buffer.size() > this.vad.config.sileroVad.windowSize) {
+            const s = this.buffer.get(this.buffer.head(), this.vad.config.sileroVad.windowSize);
+            this.vad.acceptWaveform(s);
+            this.buffer.pop(this.vad.config.sileroVad.windowSize);
+            
+            if (this.vad.isDetected() && !this.printed) {
+                this.printed = true;
+                this.lastResult = 'Speech detected';
+            }
+            
+            if (!this.vad.isDetected()) {
+                this.printed = false;
+                if (this.lastResult != '') {
+                    this.resultList.push(this.lastResult);
+                }
+                this.lastResult = '';
+            }
+            
+            while (!this.vad.isEmpty()) {
+                const segment = this.vad.front();
+                this.vad.pop();
+                
+                // Process with offline recognizer
+                const stream = this.recognizer.createStream();
+                stream.acceptWaveform(this.expectedSampleRate, segment.samples);
+                this.recognizer.decode(stream);
+                let recognitionResult = this.recognizer.getResult(stream);
+                stream.free();
+                
+                const text = recognitionResult.text;
+                if (text && text.trim()) {
+                    this.onResult(text.trim());
+                }
+            }
+        }
+    }
+    
+    // Downsample audio buffer
+    downsampleBuffer(buffer, exportSampleRate) {
+        if (exportSampleRate === this.recordSampleRate) {
+            return buffer;
+        }
+        
+        const sampleRateRatio = this.recordSampleRate / exportSampleRate;
+        const newLength = Math.round(buffer.length / sampleRateRatio);
+        const result = new Float32Array(newLength);
+        let offsetResult = 0;
+        let offsetBuffer = 0;
+        
+        while (offsetResult < result.length) {
+            const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+            let accum = 0, count = 0;
+            for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+                accum += buffer[i];
+                count++;
+            }
+            result[offsetResult] = accum / count;
+            offsetResult++;
+            offsetBuffer = nextOffsetBuffer;
+        }
+        
+        return result;
+    }
+    
+    async start() {
+        if (!this.isAvailableFlag) {
+            throw new Error('Sherpa engine not available');
+        }
+        
+        if (this.isRecording) {
+            return;
+        }
+        
+        try {
+            // Initialize audio context if not already done
+            if (!this.audioCtx || !this.mediaStream || !this.recorder) {
+                console.log('Initializing audio context for recording...');
+                await this.initAudioContext();
+            }
+            
+            // Reset components
+            if (this.vad) this.vad.reset();
+            if (this.buffer) this.buffer.reset();
+            this.lastResult = '';
+            this.resultList = [];
+            this.printed = false;
+            
+            // Start audio processing
+            this.mediaStream.connect(this.recorder);
+            this.recorder.connect(this.audioCtx.destination);
+            
+            this.isRecording = true;
+            this.onStatusChange('Sherpa-ONNX recording started');
+            
+        } catch (error) {
+            console.error('Error starting Sherpa recording:', error);
+            this.onError(error);
+            throw error;
+        }
+    }
+    
+    async stop() {
+        if (!this.isRecording) {
+            return;
+        }
+        
+        try {
+            // Stop audio processing
+            this.recorder.disconnect(this.audioCtx.destination);
+            this.mediaStream.disconnect(this.recorder);
+            
+            // Reset VAD and buffer
+            this.vad.reset();
+            this.buffer.reset();
+            
+            this.isRecording = false;
+            this.onStatusChange('Sherpa-ONNX recording stopped');
+            
+        } catch (error) {
+            this.onError(error);
+            throw error;
+        }
+    }
+    
+    isAvailable() {
+        return this.isAvailableFlag;
+    }
+    
+    destroy() {
+        if (this.isRecording) {
+            this.stop();
+        }
+        
+        if (this.recognizer) {
+            this.recognizer.free();
+        }
+        
+        if (this.vad) {
+            this.vad.free();
+        }
+        
+        if (this.buffer) {
+            this.buffer.free();
+        }
+        
+        if (this.audioCtx) {
+            this.audioCtx.close();
+        }
+        
+        this.isAvailableFlag = false;
+    }
+} 

@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>智能语音交互</title>
+    <style>
+        body {
+            font-size: 12px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: white;
+            font-weight: 400;
+            background: transparent;
+            margin: 0;
+            padding: 10px;
+            min-height: 200px;
+        }
+
+        .container {
+            max-width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 15px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Sequential header that wraps naturally */
+        .header {
+            display: flex;
+            align-items: lelft;
+            justify-content: flex-start;   /* was space-between */
+            margin-bottom: 15px;
+            /* gap: 10px; */
+        }
+
+        .header p {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.6;
+            background: linear-gradient(45deg, #fff, #f0f8ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 600;
+        }
+
+        .header p select,
+        .header p span,
+        .header p button {
+            margin: 0 6px;
+            vertical-align: middle;
+        }
+
+        .header p span {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.8);
+            background: none;
+            -webkit-background-clip: unset;
+            -webkit-text-fill-color: unset;
+            background-clip: unset;
+        }
+
+        /* Unified dropdown style matching main interface */
+        .engine-select {
+            background: rgba(50, 60, 70, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 6px 10px;
+            color: white !important;
+            -webkit-text-fill-color: white !important;
+            font-size: 12px;
+            min-width: 100px;
+            cursor: pointer;
+        }
+
+        .engine-select option {
+            background: #3a4a5a;
+            color: white;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-indicator.available {
+            background: #4CAF50;
+        }
+
+        .status-indicator.active {
+            background: #2196F3;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.error {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        /* Unified button styles matching main interface - darker theme */
+        .btn {
+            background: rgba(60, 70, 80, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 8px 16px;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:hover:not(:disabled) {
+            background: rgba(70, 80, 90, 0.9);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn.primary {
+            background: rgba(60, 70, 80, 0.9);
+        }
+
+        .btn.primary:hover:not(:disabled) {
+            background: rgba(70, 80, 90, 0.9);
+        }
+
+        .btn.danger {
+            background: rgba(60, 70, 80, 0.9);
+        }
+
+        .btn.danger:hover:not(:disabled) {
+            background: rgba(70, 80, 90, 0.9);
+        }
+
+        .btn.secondary {
+            background: rgba(60, 70, 80, 0.9);
+        }
+
+        .btn.secondary:hover:not(:disabled) {
+            background: rgba(70, 80, 90, 0.9);
+        }
+
+        .result-area {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+
+        #varArea {
+            width: 100%;
+            height: 60px; /* Reduced height for compact design */
+            background: transparent;
+            color: white;
+            border: none;
+            resize: none;
+            font-size: 12px;
+            line-height: 1.4;
+            outline: none;
+        }
+
+        #varArea::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .settings-area {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .setting-group {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .setting-group h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: #fff;
+        }
+
+        .setting-group input, .setting-group textarea, .setting-group select {
+            width: 100%;
+            background: rgba(50, 60, 70, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            padding: 6px;
+            color: white;
+            font-size: 11px;
+            box-sizing: border-box;
+        }
+
+        .setting-group input::placeholder, .setting-group textarea::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .setting-group option {
+            background: #3a4a5a;
+            color: white;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+        }
+
+        .fallback-indicator {
+            background: rgba(255, 193, 7, 0.2);
+            border: 1px solid rgba(255, 193, 7, 0.5);
+            border-radius: 5px;
+            padding: 6px 10px;
+            margin-top: 8px;
+            font-size: 10px;
+            color: #ffc107;
+            display: none;
+        }
+
+        .help-panel {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+            font-size: 11px;
+            line-height: 1.5;
+        }
+
+        .help-panel h3 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            color: #4CAF50;
+        }
+
+        .help-panel ul {
+            margin: 8px 0;
+            padding-left: 15px;
+        }
+
+        .help-panel li {
+            margin-bottom: 4px;
+        }
+
+        .help-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .help-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        @media (max-width: 600px) {
+            .header p {
+                font-size: 12px;
+                text-align: left;
+            }
+            
+            .controls {
+                gap: 8px;
+            }
+            
+            .btn {
+                padding: 6px 12px;
+                font-size: 11px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Core ASR Scripts -->
+    <script src="recorder-core.js" charset="UTF-8"></script>
+    <script src="wav.js" charset="UTF-8"></script>
+    <script src="pcm.js" charset="UTF-8"></script>
+    <script src="wsconnecter.js" charset="UTF-8"></script>
+
+    <!-- New ASR Engine Scripts -->
+    <script src="lightweight-optimizer.js" charset="UTF-8"></script>
+    <script src="webspeech-engine.js" charset="UTF-8"></script>
+    <script src="funasr-engine.js" charset="UTF-8"></script>
+    <script src="sherpa-fallback-engine.js" charset="UTF-8"></script>
+    <script src="sherpa-asr-engine.js" charset="UTF-8"></script>
+    <script src="asr-manager.js" charset="UTF-8"></script>
+
+    <div class="container">
+        <!-- Sequential header that wraps naturally -->
+        <div class="header">
+            <p>🎤 智能语音交互:
+                <select id="engineSelect" class="engine-select" onchange="selectEngineFromDropdown()">
+                    <option value="sherpa">本地ASR</option>
+                    <option value="funasr">服务器ASR</option>
+                    <option value="webspeech">浏览器ASR</option>
+                </select>
+                <span id="status-text">ASR引擎就绪</span>
+                <div class="status-indicator" id="engine-status"></div>
+                <button class="help-btn" onclick="toggleHelp()">?</button>
+            </p>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button id="btnStart" class="btn primary" disabled>🎙️ 开始录音</button>
+            <button id="btnStop" class="btn danger" disabled>⏹️ 停止录音</button>
+            <button id="btnClear" class="btn secondary">🗑️ 清空结果</button>
+            <button id="btnShowSettings" class="btn" onclick="toggleSettings()">⚙️ 设置</button>
+        </div>
+
+        <!-- Results Area -->
+        <div class="result-area">
+            <textarea id="varArea" readonly placeholder="语音识别结果将显示在这里..."></textarea>
+        </div>
+
+        <!-- Fallback indicator (compact) -->
+        <div class="fallback-indicator" id="fallback-indicator">
+            故障转移已激活，使用备用引擎
+        </div>
+
+        <!-- Settings Area (Hidden by default) -->
+        <div id="settingsArea" style="display: none;">
+            <div class="settings-area">
+                <div class="setting-group">
+                    <h4>🌐 FunASR服务器设置</h4>
+                    <input id="wssip" type="text" placeholder="WebSocket服务器地址" 
+                           value="wss://www.funasr.com:10096/" onchange="addresschange()" />
+                </div>
+
+                <div class="setting-group">
+                    <h4>🎯 识别模式</h4>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input name="asr_mode" type="radio" value="2pass" checked />
+                            2pass模式
+                        </label>
+                        <label class="radio-option">
+                            <input name="asr_mode" type="radio" value="online" />
+                            在线模式
+                        </label>
+                        <label class="radio-option">
+                            <input name="asr_mode" type="radio" value="offline" />
+                            离线模式
+                        </label>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <h4>🗣️ 浏览器ASR语言</h4>
+                    <select id="speechLang" class="engine-select" onchange="changeSpeechLanguage()">
+                        <option value="zh-CN">中文 (普通话)</option>
+                        <option value="en-US">English (US)</option>
+                        <option value="zh-TW">中文 (台灣)</option>
+                        <option value="ja-JP">日本語</option>
+                        <option value="ko-KR">한국어</option>
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <h4>🔥 热词设置</h4>
+                    <textarea id="varHot" rows="2" placeholder="一行一个关键字，空格隔开权重">阿里巴巴 20
+hello world 40</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Help Panel (Hidden by default) -->
+        <div id="helpPanel" style="display: none;">
+            <div class="help-panel">
+                <h3>🔧 使用指南</h3>
+                <ul>
+                    <li>点击引擎下拉菜单可手动切换ASR引擎</li>
+                    <li>系统会自动选择最佳可用引擎</li>
+                    <li>如果当前引擎出错，会自动切换到备用引擎</li>
+                    <li>支持中英文混合识别 (取决于所选引擎)</li>
+                    <li>本地优先: 默认使用本地ASR，完全本地化处理</li>
+                    <li>智能故障转移: 自动在引擎间切换，确保服务连续性</li>
+                    <li>识别结果将自动发送到主界面文本框并处理</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application Script -->
+    <script>
+        // Global ASR Manager instance
+        let asrManager = null;
+        let selectedEngine = null;
+        let fallbackActive = false;
+        let lightweightOptimizer = null;
+        let currentSessionId = null;
+
+        // UI Elements
+        const btnStart = document.getElementById('btnStart');
+        const btnStop = document.getElementById('btnStop');
+        const btnClear = document.getElementById('btnClear');
+        const varArea = document.getElementById('varArea');
+        const statusText = document.getElementById('status-text');
+        const fallbackIndicator = document.getElementById('fallback-indicator');
+        const engineSelect = document.getElementById('engineSelect');
+        const engineStatusIndicator = document.getElementById('engine-status');
+
+        // Cross-frame communication
+        function initParentCommunication() {
+            // Listen for session updates from parent
+            window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'session_update') {
+                    currentSessionId = event.data.sessionId;
+                    console.log('ASR: Received session ID:', currentSessionId);
+                }
+            });
+
+            // Request current session ID from parent
+            if (window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'asr_session_request'
+                }, '*');
+            }
+        }
+
+        // Send ASR result to parent window
+        function sendResultToParent(text, metadata = {}) {
+            if (window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'asr_result',
+                    text: text,
+                    metadata: metadata
+                }, '*');
+                console.log('ASR result sent to parent:', text);
+            }
+        }
+
+        // Initialize ASR Manager
+        async function initializeASR() {
+            try {
+                updateStatus('正在初始化多引擎ASR系统...');
+                
+                // Initialize lightweight optimizer
+                lightweightOptimizer = new LightweightOptimizer();
+                console.log('Lightweight optimizer initialized');
+                
+                // Pause memory monitoring during intensive WASM loading
+                lightweightOptimizer.pauseMemoryMonitoring(90000);
+                
+                asrManager = new ASRManager({
+                    onResult: handleASRResult,
+                    onError: handleASRError,
+                    onEngineChange: handleEngineChange,
+                    onStatusChange: handleStatusChange
+                });
+
+                await asrManager.init();
+                updateEngineUI();
+                
+                const availableEngines = asrManager.getAvailableEngines();
+                console.log('Available ASR engines:', availableEngines);
+                
+                if (availableEngines.length === 0) {
+                    updateStatus('⚠️ 没有可用的ASR引擎');
+                    btnStart.disabled = true;
+                } else {
+                    btnStart.disabled = false;
+                    updateStatus('ASR引擎就绪');
+                }
+                
+                console.log('Resource usage report:', lightweightOptimizer.getResourceUsageReport());
+                
+            } catch (error) {
+                console.error('ASR initialization failed:', error);
+                updateStatus('ASR初始化失败');
+                
+                if (lightweightOptimizer) {
+                    lightweightOptimizer.resumeMemoryMonitoring();
+                }
+                
+                // Try Web Speech API as emergency fallback
+                try {
+                    console.log('Attempting to initialize Web Speech API as emergency fallback...');
+                    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                        btnStart.disabled = false;
+                        updateStatus('⚠️ 仅浏览器ASR可用');
+                    }
+                } catch (fallbackError) {
+                    console.error('Emergency fallback failed:', fallbackError);
+                }
+                
+                handleASRError(error);
+            }
+        }
+
+        // ASR Event Handlers
+        function handleASRResult(text, metadata = {}) {
+            if (text && text.trim()) {
+                const currentText = varArea.value;
+                varArea.value = currentText + (currentText ? '\n' : '') + text.trim();
+                varArea.scrollTop = varArea.scrollHeight;
+                
+                // Send result to parent window for processing
+                sendResultToParent(text.trim(), metadata);
+            }
+        }
+
+        // Helper function for sleep
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function handleASRError(error) {
+            console.error('ASR Error:', error);
+            updateStatus('错误: ' + error.message);
+            
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+        }
+
+        function handleEngineChange(engine) {
+            selectedEngine = engine;
+            engineSelect.value = engine;
+            updateEngineUI();
+            
+            if (asrManager && asrManager.currentEngineIndex > 0) {
+                fallbackActive = true;
+                fallbackIndicator.style.display = 'block';
+            } else {
+                fallbackActive = false;
+                fallbackIndicator.style.display = 'none';
+            }
+        }
+
+        function handleStatusChange(status) {
+            // Update status display if needed
+        }
+
+        // UI Helper Functions
+        function updateStatus(message) {
+            statusText.textContent = message;
+        }
+
+        function getEngineDisplayName(engine) {
+            const names = {
+                'sherpa': '本地ASR',
+                'funasr': '服务器ASR',
+                'webspeech': '浏览器ASR'
+            };
+            return names[engine] || engine;
+        }
+
+        function updateEngineUI() {
+            if (asrManager && asrManager.isEngineAvailable(selectedEngine)) {
+                engineStatusIndicator.classList.add('available');
+                engineStatusIndicator.classList.remove('error');
+                
+                if (selectedEngine) {
+                    engineStatusIndicator.classList.add('active');
+                } else {
+                    engineStatusIndicator.classList.remove('active');
+                }
+            } else {
+                engineStatusIndicator.classList.add('error');
+                engineStatusIndicator.classList.remove('available', 'active');
+            }
+        }
+
+        // Engine Selection
+        async function selectEngineFromDropdown() {
+            const engine = engineSelect.value;
+            await selectEngine(engine);
+        }
+
+        async function selectEngine(engine) {
+            if (!asrManager) {
+                updateStatus('ASR系统未初始化');
+                return;
+            }
+            
+            if (!asrManager.isEngineAvailable(engine)) {
+                updateStatus(`引擎 ${getEngineDisplayName(engine)} 不可用`);
+                return;
+            }
+
+            try {
+                await asrManager.manualSwitchEngine(engine);
+                updateStatus('已切换到 ' + getEngineDisplayName(engine));
+                fallbackActive = false;
+                fallbackIndicator.style.display = 'none';
+            } catch (error) {
+                console.error('Failed to switch engine:', error);
+                updateStatus('切换引擎失败: ' + error.message);
+            }
+        }
+
+        // Recording Controls
+        async function startRecording() {
+            if (!asrManager) {
+                updateStatus('ASR系统未初始化');
+                return;
+            }
+
+            try {
+                await asrManager.startRecording();
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+                updateStatus('录音中...');
+            } catch (error) {
+                handleASRError(error);
+            }
+        }
+
+        async function stopRecording() {
+            if (!asrManager) return;
+
+            try {
+                await asrManager.stopRecording();
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                updateStatus('录音已停止');
+            } catch (error) {
+                handleASRError(error);
+            }
+        }
+
+        function clearResults() {
+            varArea.value = '';
+            updateStatus('结果已清空');
+        }
+
+        // Settings Functions
+        function toggleSettings() {
+            const settingsArea = document.getElementById('settingsArea');
+            const btnShowSettings = document.getElementById('btnShowSettings');
+
+            if (settingsArea.style.display === 'none') {
+                settingsArea.style.display = 'block';
+                btnShowSettings.textContent = '🔽 隐藏设置';
+            } else {
+                settingsArea.style.display = 'none';
+                btnShowSettings.textContent = '⚙️ 设置';
+            }
+        }
+
+        function toggleHelp() {
+            const helpPanel = document.getElementById('helpPanel');
+            if (helpPanel.style.display === 'none') {
+                helpPanel.style.display = 'block';
+            } else {
+                helpPanel.style.display = 'none';
+            }
+        }
+
+        function addresschange() {
+            // WebSocket address change handling for FunASR
+        }
+
+        function changeSpeechLanguage() {
+            const lang = document.getElementById('speechLang').value;
+            if (asrManager && asrManager.webspeechEngine) {
+                asrManager.webspeechEngine.setLanguage(lang);
+                updateStatus('浏览器ASR语言已设置为: ' + lang);
+            }
+        }
+
+        // Event Listeners
+        btnStart.onclick = startRecording;
+        btnStop.onclick = stopRecording;
+        btnClear.onclick = clearResults;
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize parent communication first
+            initParentCommunication();
+            
+            // Initialize ASR system
+            initializeASR();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (asrManager) {
+                asrManager.destroy();
+            }
+            if (lightweightOptimizer) {
+                lightweightOptimizer.destroy();
+            }
+        });
+    </script>
+</body>
+
+</html> 

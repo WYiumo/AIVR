@@ -1,11 +1,13 @@
 import * as pc from 'playcanvas';
 import { Scene } from './scene';
 import { VrManager } from './vr-manager';
+import { AssetManager } from './asset-manager';
 import { FontManager } from './font-manager';
 import { VrController } from '../entities/controller';
 import { SplatLoader } from '../entities/splat-loader';
 import { createVrButton } from '../ui/vr-button';
 import { VrVoicePanel } from '../ui/vr-voice-panel';
+
 
 /**
  * 应用配置
@@ -33,6 +35,7 @@ export class App {
     private app: pc.Application;
     private scene: Scene;
     private vrManager: VrManager;
+    private assetManager: AssetManager;
     private vrController: VrController | null = null;
     private voicePanel: VrVoicePanel | null = null;
     private config: AppConfig;
@@ -43,6 +46,7 @@ export class App {
         this.config = { ...defaultConfig, ...config };
         this.vrManager = new VrManager(app);
         this.scene = new Scene(app, this.vrManager);
+        this.assetManager = new AssetManager(app);
     }
 
     /**
@@ -53,6 +57,11 @@ export class App {
             console.log('AIVR App 初始化中...');
         }
 
+        await this.assetManager.loadAsset();
+        console.log(this.app.assets);
+
+        await this.scene.init();
+        
         // 创建相机
         this.createCamera();
 
@@ -158,7 +167,7 @@ export class App {
         });
 
         // 初始化 ASR
-        this.voicePanel.initASR();
+        // this.voicePanel.initASR();
 
         // 隐藏VR按钮
         const vrBtn = document.getElementById('vr-button');

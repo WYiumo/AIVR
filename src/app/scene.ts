@@ -55,11 +55,10 @@ const defaultConfig: SceneConfig = {
     ground: {
         enabled: true,
         size: 100,
-        color: new pc.Color(0.35, 0.35, 0.4)
     },
     sky: {
         enabled: true,
-        type: 'infinite',  // 暂时使用无限天空（无需纹理）
+        type: 'infinite',
         scale: 200,
         exposure: 2.0
     }
@@ -79,6 +78,7 @@ export class Scene {
     private ground: Ground | null = null;
     private sky: Sky | null = null;
 
+
     constructor(
         app: pc.Application,
         vrManager: VrManager,
@@ -87,11 +87,13 @@ export class Scene {
         this.app = app;
         this.vrManager = vrManager;
         this.config = { ...defaultConfig, ...config };
+    }
 
+    async init(): Promise<void> {
         this.setupScene();
         this.setupGround();
         this.setupSky();
-        this.setupEventListeners();
+        // this.setupEventListeners();
     }
 
     /**
@@ -99,7 +101,7 @@ export class Scene {
      */
     private setupScene(): void {
         // 设置环境光
-        this.app.scene.ambientLight = new pc.Color(0.7, 0.7, 0.7);
+        this.app.scene.ambientLight = new pc.Color(0.8, 0.8, 0.8);
     }
 
     /**
@@ -111,7 +113,6 @@ export class Scene {
 
         this.ground = new Ground(this.app, {
             size: cfg.size,
-            color: cfg.color
         });
     }
 
@@ -125,45 +126,8 @@ export class Scene {
         this.sky = new Sky(this.app, {
             type: cfg.type,
             scale: cfg.scale,
-            exposure: cfg.exposure
+            exposure: cfg.exposure,
         });
-    }
-
-    /**
-     * 设置事件监听
-     */
-    private setupEventListeners(): void {
-        // VR会话开始
-        this.vrManager.on('sessionstart', () => {
-            this.onVrStart();
-        });
-
-        // VR会话结束
-        this.vrManager.on('sessionend', () => {
-            this.onVrEnd();
-        });
-    }
-
-    /**
-     * VR会话开始时调用
-     */
-    private onVrStart(): void {
-        console.log('VR会话已启动');
-        // VR模式下调整天空位置以适配
-        if (this.sky) {
-            // 确保天空在VR中正确显示
-            console.log('天空已配置:', this.sky.getType());
-        }
-        if (this.ground) {
-            console.log('地面已配置');
-        }
-    }
-
-    /**
-     * VR会话结束时调用
-     */
-    private onVrEnd(): void {
-        console.log('VR会话已结束');
     }
 
     /**

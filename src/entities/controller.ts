@@ -30,48 +30,13 @@ export class VrController {
     // 模型资产
     private leftModelAsset: pc.Asset | null = null;
     private rightModelAsset: pc.Asset | null = null;
-    private modelsLoaded: boolean = false;
-    private modelsLoading: Promise<void> | null = null;
 
     constructor(app: pc.Application) {
         this.app = app;
-        this.loadControllerModels();
+        // this.loadControllerModels();
+        this.leftModelAsset = this.app.assets.find('leftController');
+        this.rightModelAsset = this.app.assets.find('rightController');
         this.setupControllers();
-    }
-
-    /**
-     * 加载手柄模型
-     */
-    private loadControllerModels(): Promise<void> {
-        if (this.modelsLoaded || this.modelsLoading) {
-            return this.modelsLoading ?? Promise.resolve();
-        }
-
-        this.modelsLoading = new Promise((resolve) => {
-            const assets = {
-                left: new pc.Asset('leftController', 'container', {
-                    url: 'assets/meta_quest_touch/left.glb'
-                }),
-                right: new pc.Asset('rightController', 'container', {
-                    url: 'assets/meta_quest_touch/right.glb'
-                })
-            };
-
-            const loader = new pc.AssetListLoader(Object.values(assets), this.app.assets);
-            loader.load((err: Error) => {
-                if (err) {
-                    console.error('手柄模型加载失败:', err);
-                } else {
-                    this.leftModelAsset = assets.left;
-                    this.rightModelAsset = assets.right;
-                    this.modelsLoaded = true;
-                    console.log('手柄模型加载完成');
-                }
-                resolve();
-            });
-        });
-
-        return this.modelsLoading;
     }
 
     /**
@@ -144,7 +109,7 @@ export class VrController {
      */
     private SetupControllerModel(controller: ControllerInfo): void {
 
-        if (controller.modelAsset || !this.modelsLoaded) return;  // 已设置或未加载
+        if (controller.modelAsset) return;  // 已设置
 
         const handedness = controller.inputSource.handedness;
         const modelAsset = handedness === 'left' ? this.leftModelAsset :

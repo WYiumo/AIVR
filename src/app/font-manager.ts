@@ -38,8 +38,6 @@ class FontManager {
 
     /**
      * 加载字体
-     * @param name - 字体标识名称
-     * @param fontUrl - 字体文件 URL (TTF/OTF)
      */
     async loadFont(name: string, fontUrl: string): Promise<pc.CanvasFont> {
         if (!this.app) {

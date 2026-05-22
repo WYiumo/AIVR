@@ -27,7 +27,6 @@ interface InternalSkyConfig {
     type: SkyType;
     scale: number;
     centerHeight: number;
-    cubemapUrl: string | undefined;
     rotation: number;
     exposure: number;
 }
@@ -39,16 +38,17 @@ interface InternalSkyConfig {
 export class Sky {
     private app: pc.Application;
     private config: InternalSkyConfig;
+    private skyboxAsset: pc.Asset | null = null;
 
     constructor(app: pc.Application, config: SkyConfig = {}) {
         this.app = app;
-
+        this.skyboxAsset= this.app.assets.find('skybox');
         this.config = {
             type: config.type ?? 'dome',
             scale: config.scale ?? 200,
             centerHeight: config.centerHeight ?? 0.05,
-            cubemapUrl: config.cubemapUrl,
-            rotation: config.rotation ?? 0,
+            // cubemapAsset: config.cubemapAsset,
+            rotation: config.rotation ?? 180,
             exposure: config.exposure ?? 1.0
         };
 
@@ -70,6 +70,13 @@ export class Sky {
             this.app.scene.sky.center = new pc.Vec3(0, centerHeight, 0);
         }
 
+        // 设置天空盒 Cubemap
+        if (this.skyboxAsset) {
+            this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
+            console.log("天空盒设置完成");
+        }
+
+        this.app.scene.skyboxMip = 3;
         // 设置曝光
         this.app.scene.exposure = exposure;
 

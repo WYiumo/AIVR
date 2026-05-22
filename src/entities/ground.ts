@@ -23,13 +23,15 @@ export class Ground {
     constructor(app: pc.Application, config: GroundConfig = {}) {
         const {
             size = 100,
-            color = new pc.Color(0.35, 0.35, 0.4),
             receiveShadows = true
         } = config;
 
         // 创建材质
-        this.material = new pc.StandardMaterial();
-        this.material.diffuse = color;
+        // this.material = new pc.StandardMaterial();
+        // this.material.diffuse = color;
+        // this.material.update();
+        const materialasset = app.assets.find('metal', 'material') as pc.Asset;
+        this.material = materialasset.resource as pc.StandardMaterial;
         this.material.update();
 
         // 创建地面实体
@@ -43,26 +45,12 @@ export class Ground {
         this.entity.addComponent('render', {
             type: 'plane',
             material: this.material,
-            receiveShadows: receiveShadows
+            receiveShadows: receiveShadows,
+            layer: 'World'
         });
 
         // 添加到场景
         app.root.addChild(this.entity);
-    }
-
-    /**
-     * 设置地面颜色
-     */
-    setColor(color: pc.Color): void {
-        this.material.diffuse = color;
-        this.material.update();
-    }
-
-    /**
-     * 获取地面颜色
-     */
-    getColor(): pc.Color {
-        return this.material.diffuse.clone();
     }
 
     /**
@@ -83,7 +71,7 @@ export class Ground {
      * 销毁
      */
     destroy(): void {
-        this.material.destroy();
+        // this.material.destroy();
         this.entity.destroy();
     }
 }

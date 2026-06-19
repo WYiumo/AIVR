@@ -1,5 +1,4 @@
 import * as pc from 'playcanvas';
-import { VrManager } from './vr-manager';
 import { Ground } from '../entities/ground';
 import { Sky } from '../entities/sky';
 
@@ -70,7 +69,6 @@ const defaultConfig: SceneConfig = {
  */
 export class Scene {
     readonly app: pc.Application;
-    readonly vrManager: VrManager;
     readonly config: SceneConfig;
 
     private entities: Set<pc.Entity> = new Set();
@@ -81,18 +79,16 @@ export class Scene {
 
     constructor(
         app: pc.Application,
-        vrManager: VrManager,
         config: Partial<SceneConfig> = {}
     ) {
         this.app = app;
-        this.vrManager = vrManager;
         this.config = { ...defaultConfig, ...config };
     }
 
     async init(): Promise<void> {
         this.setupScene();
-        this.setupGround();
         this.setupSky();
+        this.setupGround();
         // this.setupEventListeners();
     }
 

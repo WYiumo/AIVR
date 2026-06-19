@@ -45,8 +45,8 @@ export class App {
         this.app = app;
         this.config = { ...defaultConfig, ...config };
         this.vrManager = new VrManager(app);
-        this.scene = new Scene(app, this.vrManager);
         this.assetManager = new AssetManager(app);
+        this.scene = new Scene(app);
     }
 
     /**
@@ -57,7 +57,7 @@ export class App {
             console.log('AIVR App 初始化中...');
         }
 
-        await this.assetManager.loadAsset();
+        await this.assetManager.loadInitAsset();
         console.log(this.app.assets);
 
         await this.scene.init();
@@ -105,6 +105,7 @@ export class App {
         // 设置相机位置（面向立方体）
         // camera.setPosition(new pc.Vec3(3, 2, 3));
         // camera.lookAt(new pc.Vec3(0, 0, -1));
+        // this.app.root.addChild(camera);
 
         this.scene.setCamera(camera);
         this.scene.addEntity(camera);
@@ -162,7 +163,6 @@ export class App {
 
         // 设置语音面板 Y 按钮回调
         this.vrController?.setYButtonCallback(() => {
-            console.log('Y按钮按下');
             this.voicePanel?.followTarget();
         });
 

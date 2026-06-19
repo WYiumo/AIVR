@@ -73,7 +73,6 @@ export class Sky {
         // 设置天空盒 Cubemap
         if (this.skyboxAsset) {
             this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
-            console.log("天空盒设置完成");
         }
 
         this.app.scene.skyboxMip = 3;

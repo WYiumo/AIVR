@@ -24,6 +24,7 @@ export class VrController {
 
     private grabbedEntity: pc.Entity | null = null;
     private grabOffset: pc.Vec3 = new pc.Vec3();
+    
     private onYButtonPressed: (() => void) | null = null;
     private prevYButtonState: boolean = false;
 
@@ -33,7 +34,6 @@ export class VrController {
 
     constructor(app: pc.Application) {
         this.app = app;
-        // this.loadControllerModels();
         this.leftModelAsset = this.app.assets.find('leftController');
         this.rightModelAsset = this.app.assets.find('rightController');
         this.setupControllers();

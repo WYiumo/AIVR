@@ -33,11 +33,13 @@ AIVR/src/
 │   ├── index.ts         # App 类 - 主应用逻辑，协调各模块
 │   ├── scene.ts         # Scene 类 - 场景管理，实体生命周期
 │   ├── vr-manager.ts     # VrManager 类 - VR 会话管理
+│   ├── asset-manager.ts  # AssetManager 类 - 资源预加载管理
 │   └── font-manager.ts  # FontManager 类 - 单例字体管理器
 ├── asr/
 │   └── asr-handler.ts   # ASR 处理器，与 iframe 通信
 ├── entities/
-│   ├── cube.ts          # Cube 类 - 蓝色立方体示例
+│   ├── ground.ts         # Ground 类 - 地面实体
+│   ├── sky.ts           # Sky 类 - 天空盒配置
 │   ├── controller.ts    # VrController 类 - VR 手柄控制器
 │   └── splat-loader.ts   # SplatLoader 类 - Gaussian Splatting 加载器
 └── ui/
@@ -88,9 +90,13 @@ AIVR/asr/                # ASR 模块（独立）
 ┌─────────────────────────────────────────────────────┐
 │                     Entities                        │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │    Cube     │  │VrController │  │SplatLoader  │  │
-│  │ (cube.ts)   │  │(controller) │  │(splat-load) │  │
+│  │   Ground    │  │    Sky      │  │VrController │  │
+│  │ (ground.ts) │  │  (sky.ts)   │  │(controller) │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  │
+│  ┌─────────────┐  ┌─────────────┐                    │
+│  │SplatLoader  │  │             │                    │
+│  │(splat-load) │  │             │                    │
+│  └─────────────┘  └─────────────┘                    │
 └─────────────────────────────────────────────────────┘
             │
             ▼
@@ -153,6 +159,22 @@ app.on('update', (dt: number) => {
 - 提供统一的更新循环
 - 管理 VrController 和 VrVoicePanel
 
+**资源初始化流程**：
+
+```typescript
+async init(): Promise<void> {
+    // 1. 加载预置资源（GLB 模型、cubemap、材质）
+    await this.assetManager.loadInitAsset();
+    console.log(this.app.assets);  // 查看所有已加载资源
+
+    // 2. 初始化场景
+    await this.scene.init();
+
+    // 3. 创建相机
+    this.createCamera();
+}
+```
+
 **VR 会话生命周期**：
 
 ```typescript
@@ -184,7 +206,187 @@ private onVrEnd(): void {
 
 ---
 
-### 3. FontManager (app/font-manager.ts)
+### 3. AssetManager (app/asset-manager.ts)
+
+**职责**：
+- 集中管理所有预置资源的加载
+- 使用 `AssetListLoader` 异步加载 GLB 模型、cubemap、材质
+- 提供统一的资源访问入口
+
+**预加载资源**：
+
+| 资源名 | 类型 | 文件路径 | 用途 |
+|--------|------|----------|------|
+| `leftController` | container | `assets/meta_quest_touch/left.glb` | 左手手柄 GLB 模型 |
+| `rightController` | container | `assets/meta_quest_touch/right.glb` | 右手手柄 GLB 模型 |
+| `skybox` | cubemap | `assets/cubemap/helipad-env-atlas.png` | 环境贴图 |
+| `metal` | material | `assets/materials/metal.json` | 金属材质 |
+
+**关键代码**：
+
+```typescript
+private createDefaultAssets(): void {
+    this.assets = [
+        new pc.Asset('leftController', 'container', { url: 'assets/meta_quest_touch/left.glb' }),
+        new pc.Asset('rightController', 'container', { url: 'assets/meta_quest_touch/right.glb' }),
+        new pc.Asset('skybox', 'cubemap', { url: 'assets/cubemap/helipad-env-atlas.png' }),
+        new pc.Asset('metal', 'material', { url: 'assets/materials/metal.json' })
+    ];
+}
+
+async loadInitAsset(): Promise<void> {
+    this.createDefaultAssets();
+    return new Promise((resolve, reject) => {
+        const loader = new pc.AssetListLoader(this.assets, this.app.assets);
+        loader.load((err: Error) => {
+            if (err) {
+                console.error('Asset加载失败:', err);
+                reject(err);
+                return;
+            }
+            resolve();
+        });
+    });
+}
+```
+
+**资源访问**：
+
+```typescript
+// 通过名称和类型查找资源
+const metalAsset = app.assets.find('metal', 'material') as pc.Asset;
+const material = metalAsset.resource as pc.StandardMaterial;
+
+// 通过名称查找（类型未知）
+const skyboxAsset = app.assets.find('skybox');
+```
+
+---
+
+### 4. Scene (app/scene.ts)
+
+**职责**：
+- 场景基础配置（环境光、背景色）
+- 管理地面、天空等实体
+- 提供实体添加/移除接口
+
+**配置接口**：
+
+```typescript
+interface SceneConfig {
+    backgroundColor: pc.Color;  // 背景颜色
+    showGrid: boolean;           // 是否显示网格
+    gridScale: number;           // 网格大小
+    ground?: GroundConfig;       // 地面配置
+    sky?: SkyConfig;             // 天空配置
+}
+```
+
+**关键方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `addEntity(entity)` | 添加实体到场景 |
+| `removeEntity(entity)` | 移除并销毁实体 |
+| `getGround()` | 获取地面实体 |
+| `getSky()` | 获取天空实体 |
+| `getCamera()` | 获取相机实体 |
+| `setCamera(entity)` | 设置相机实体 |
+
+---
+
+### 5. Sky (entities/sky.ts)
+
+**职责**：
+- 配置场景天空盒
+- 设置曝光度和旋转
+
+**天空类型**：
+- `infinite` - 无限天空（程序化渐变）
+- `box` - 立方体天空盒
+- `dome` - 穹顶天空盒
+
+**关键代码**：
+
+```typescript
+// 构造函数中查找 skybox 资源
+this.skyboxAsset = this.app.assets.find('skybox');
+
+// 应用配置
+private apply(): void {
+    const { type, scale, centerHeight, exposure, rotation } = this.config;
+
+    // 设置天空类型
+    this.app.scene.sky.type = type;
+
+    // 设置天空盒缩放和中心
+    if (type !== 'infinite') {
+        this.app.scene.sky.node.setLocalScale(scale, scale, scale);
+        this.app.scene.sky.center = new pc.Vec3(0, centerHeight, 0);
+    }
+
+    // 设置 skybox 纹理（从 assets.find() 获取的资源）
+    if (this.skyboxAsset) {
+        this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
+    }
+
+    this.app.scene.skyboxMip = 3;  // 设置 mipmap 级别
+    this.app.scene.exposure = exposure;
+    this.app.scene.skyboxRotation = new pc.Quat().setFromEulerAngles(0, rotation, 0);
+}
+```
+
+**cubemap 资源访问**：
+
+> **重要**：cubemap 资源的纹理不在 `asset.resource` 中，而是在 `asset.resources[1]`
+
+```typescript
+// 检查资源结构
+console.log('skyboxAsset.resources:', this.skyboxAsset.resources);
+// 输出: (7) [null, Texture, null, null, null, null, null]
+// 纹理位于 resources[1]
+
+this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
+```
+
+---
+
+### 6. Ground (entities/ground.ts)
+
+**职责**：
+- 创建地面实体
+- 应用预置材质
+
+**关键代码**：
+
+```typescript
+constructor(app: pc.Application, config: GroundConfig = {}) {
+    const { size = 100, receiveShadows = true } = config;
+
+    // 从 AssetManager 加载的材质
+    const materialAsset = app.assets.find('metal', 'material') as pc.Asset;
+    this.material = materialAsset.resource as pc.StandardMaterial;
+
+    // 创建地面实体
+    this.entity = new pc.Entity('ground');
+    this.entity.setPosition(0, 0, 0);
+    this.entity.setLocalScale(size, 1, size);
+
+    // 添加渲染组件
+    this.entity.addComponent('render', {
+        type: 'plane',
+        material: this.material,
+        receiveShadows: receiveShadows,
+        layer: 'World'
+    });
+
+    app.root.addChild(this.entity);
+}
+```
+
+---
+
+### 7. FontManager (app/font-manager.ts)
 
 **职责**：
 - 单例模式管理字体加载
@@ -226,7 +428,7 @@ fontManager.updateFontTextures('SimHei', '你好世界');
 
 ---
 
-### 4. VrController (entities/controller.ts)
+### 8. VrController (entities/controller.ts)
 
 **职责**：
 - 追踪 VR 手柄控制器
@@ -243,39 +445,19 @@ fontManager.updateFontTextures('SimHei', '你好世界');
 **GLB 模型加载**：
 
 ```typescript
-// 构造函数中预加载模型
 constructor(app: pc.Application) {
     this.app = app;
-    this.loadControllerModels();  // 异步加载 left.glb 和 right.glb
+    this.leftModelAsset = this.app.assets.find('leftController');
+    this.rightModelAsset = this.app.assets.find('rightController');
     this.setupControllers();
-}
-
-// 加载 GLB 模型资产
-private loadControllerModels(): Promise<void> {
-    const assets = {
-        left: new pc.Asset('leftController', 'container', {
-            url: 'assets/meta_quest_touch/left.glb'
-        }),
-        right: new pc.Asset('rightController', 'container', {
-            url: 'assets/meta_quest_touch/right.glb'
-        })
-    };
-
-    const loader = new pc.AssetListLoader(Object.values(assets), this.app.assets);
-    loader.load(() => {
-        this.leftModelAsset = assets.left;
-        this.rightModelAsset = assets.right;
-        this.modelsLoaded = true;
-    });
 }
 ```
 
 **GLB 模型替换**：
 
 ```typescript
-// 在 update() 中尝试替换 box 模型为 GLB
 private SetupControllerModel(controller: ControllerInfo): void {
-    if (controller.modelAsset || !this.modelsLoaded) return;
+    if (controller.modelAsset) return;
 
     const handedness = controller.inputSource.handedness;
     const modelAsset = handedness === 'left' ? this.leftModelAsset :
@@ -297,7 +479,6 @@ private SetupControllerModel(controller: ControllerInfo): void {
 **射线可视化**：
 
 ```typescript
-// 每帧绘制 XR 输入源射线
 drawInputSourceRays(): void {
     if (!this.app.xr?.active) return;
 
@@ -307,57 +488,11 @@ drawInputSourceRays(): void {
             const direction = inputSource.getDirection();
             if (origin && direction) {
                 const endPoint = direction.clone().mulScalar(10).add(origin);
-                // 按下扳机时绿色，否则白色
                 const color = inputSource.selecting ? pc.Color.GREEN : pc.Color.WHITE;
                 this.app.drawLine(origin, endPoint, color);
             }
         }
     }
-}
-```
-
-**完整 update 流程**：
-
-```typescript
-update(_dt: number): void {
-    const inputSources = this.app.xr?.input?.inputSources ?? [];
-
-    for (const inputSource of inputSources) {
-        const controller = this.controllers.find(c => c.inputSource === inputSource);
-        if (!controller) continue;
-
-        // 更新位置和旋转
-        const position = inputSource.getLocalPosition();
-        const rotation = inputSource.getLocalRotation();
-        if (position) controller.entity.setLocalPosition(position);
-        if (rotation) controller.entity.setLocalRotation(rotation);
-
-        // 区分左右手
-        if (controller.needsAssignment && inputSource.handedness) {
-            if (inputSource.handedness === 'right') {
-                this.rightController = controller;
-            } else if (inputSource.handedness === 'left') {
-                this.leftController = controller;
-            }
-            controller.needsAssignment = false;
-        }
-
-        // 替换 GLB 模型
-        this.SetupControllerModel(controller);
-    }
-
-    // Y 按钮检测（左手，按钮索引 5）
-    if (this.leftController) {
-        const gamepad = this.leftController.inputSource.gamepad;
-        const yButtonPressed = gamepad?.buttons?.[5]?.pressed ?? false;
-        if (yButtonPressed && !this.prevYButtonState) {
-            this.onYButtonPressed?.();
-        }
-        this.prevYButtonState = yButtonPressed;
-    }
-
-    // 射线可视化
-    this.drawInputSourceRays();
 }
 ```
 
@@ -375,40 +510,13 @@ update(_dt: number): void {
 
 ---
 
-### 5. VrVoicePanel (ui/vr-voice-panel.ts)
+### 9. VrVoicePanel (ui/vr-voice-panel.ts)
 
 **职责**：
 - 在 VR 空间内创建 3D world-space UI 面板
 - 提供语音输入控制按钮
 - 显示识别结果和状态
 - 跟随 VR 相机位置
-
-**关键方法**：
-
-| 方法 | 说明 |
-|------|------|
-| `followTarget()` | 跟随 XR 相机，重新定位面板 |
-| `initASR()` | 初始化 ASR 处理器 |
-| `startRecording()` | 开始录音 |
-| `stopRecording()` | 停止录音 |
-| `appendResultText(text)` | 追加识别结果文本 |
-| `setStatus(status)` | 设置状态文本 |
-
-**面板布局（LayoutGroup 自动布局）**：
-
-```
-┌────────────────────────────────┐
-│  🎤 语音助手                    │  ← 标题
-├────────────────────────────────┤
-│  [开始]  [停止]  [清空]          │  ← 按钮行（水平布局）
-├────────────────────────────────┤
-│  ┌────────────────────────┐    │
-│  │  识别结果将显示在这里...  │    │  ← 结果区域
-│  └────────────────────────┘    │
-│                                │
-│  状态: 就绪                     │  ← 状态文本
-└────────────────────────────────┘
-```
 
 **关键实现**：
 
@@ -424,13 +532,13 @@ update(_dt: number): void {
        // 放置在相机前方 0.4 米
        const panelPos = camPos.clone().add(forward.mulScalar(0.4));
        this.screenEntity.setPosition(panelPos);
-       this.screenEntity.lookAt(camPos);  // 朝向相机
+       this.screenEntity.lookAt(camPos);
    }
    ```
 
 ---
 
-### 6. ASR 模块 (asr/)
+### 10. ASR 模块 (asr/)
 
 **架构**：
 - `asr-handler.ts` - 父页面模块，与 iframe 通信
@@ -448,25 +556,9 @@ update(_dt: number): void {
 // asr-handler.ts 发送命令
 iframe.contentWindow.postMessage({
     type: 'vr_command',
-    command: 'start'  // 'start' | 'stop' | 'clear' | 'switch_engine'
+    command: 'start'
 }, '*');
-
-// iframe 接收并处理
-window.addEventListener('message', (event) => {
-    if (event.data.type === 'vr_command') {
-        handleVrCommand(event.data.command, event.data);
-    }
-});
 ```
-
-**ASR 事件回调**：
-
-| 事件 | 说明 |
-|------|------|
-| `asr_result` | 识别结果，返回 `{ text, metadata }` |
-| `asr_status` | 状态变化 |
-| `asr_engine_change` | 引擎切换 |
-| `asr_error` | 错误信息 |
 
 ---
 
@@ -491,7 +583,7 @@ import { ElementInput } from 'playcanvas';
 const app = new Application(canvas, {
     mouse: new Mouse(canvas),
     touch: new TouchDevice(canvas),
-    elementInput: new ElementInput(canvas)  // 启用元素输入系统
+    elementInput: new ElementInput(canvas)
 });
 ```
 
@@ -501,83 +593,77 @@ const app = new Application(canvas, {
 
 **原因**：PlayCanvas 的 XrInputSource 包装了 WebXR 输入源，但在 'add' 事件触发时，底层属性尚未同步
 
-**解决方案**：在 `update()` 循环中检测 handedness，而非在 `onControllerAdded` 中
+**解决方案**：在 `update()` 循环中检测 handedness
 
 ```typescript
-// 错误：on('add') 时 handedness 为 undefined
-app.xr.input.on('add', (inputSource) => {
-    if (inputSource.handedness === 'right') {  // 始终 false
-        // ...
+// 使用 needsAssignment 标志位
+if (controller.needsAssignment && inputSource.handedness) {
+    if (inputSource.handedness === 'right') {
+        this.rightController = controller;
+    } else if (inputSource.handedness === 'left') {
+        this.leftController = controller;
     }
-});
-
-// 正确：在 update 中检测
-update(dt): void {
-    for (const inputSource of app.xr.input.inputSources) {
-        if (inputSource.handedness === 'right') {  // 此时有值
-            // ...
-        }
-    }
+    controller.needsAssignment = false;
 }
 ```
 
-### XR 事件
+### Cubemap 资源访问
+
+**问题**：cubemap 纹理资源不在 `asset.resource` 中
+
+**解决**：访问 `asset.resources[1]`
 
 ```typescript
-app.xr.on('start', () => {})      // 会话开始
-app.xr.on('end', () => {})         // 会话结束
-app.xr.on('available:XRTYPE_VR', (available) => {})  // 可用性变化
+// skyboxAsset 结构
+skyboxAsset.resources: (7) [null, Texture, null, null, null, null, null]
+//                                              ↑
+//                                         resources[1]
 
-app.xr.input.on('add', (inputSource) => {})    // 输入源添加
-app.xr.input.on('remove', (inputSource) => {}) // 输入源移除
+this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
 ```
 
----
+### 环境反射材质限制
 
-## 开发需求清单
+**已知限制**：PNG 格式的 cubemap atlas 无法用于材质的环境反射
 
-### 优先级 P0 - 核心功能
+**原因**：PNG 作为 2D 纹理加载时，`_cubemap` 属性为 `false`，`useSkybox` 无法生效
 
-- [x] **修复 VR 控制器可视化**：当前手柄使用简单 box 模型，应改为更符合实际手柄的模型
-- [ ] **实现射线检测**：使用 `getRightRay()` 实现射线与场景物体的交互
-- [ ] **实现抓取功能**：`VrController.startGrab()` 和 `endGrab()` 需要与场景物体联动
+**现象**：
+- `scene.skybox` 正确设置并显示
+- `material.useSkybox` 为 `true`
+- `material.envTex` 为 `undefined`
+- 金属材质无环境反射效果
 
-### 优先级 P1 - 交互功能
-
-- [x] **VR 语音面板**：在 VR 中显示 3D UI 面板用于语音输入控制
-- [x] **Y 按钮呼出**：左手 Y 按钮触发 `followTarget()` 重新定位面板
-- [ ] **物体变换**：实现立方体的移动、旋转、缩放
-- [ ] **手柄震动反馈**：抓取物体时触发震动
-
-### 优先级 P2 - 扩展功能
-
-- [x] **语音控制**：ASR iframe 集成，支持 VR 命令
-- [ ] **场景切换**：支持多个场景的加载和切换
-- [ ] **物体导入**：支持加载外部 3D 模型
-
-### 优先级 P3 - Splatting 集成
-
-- [x] **Splat 加载器**：已实现 SplatLoader 类
-- [ ] **VR 中 Splat 控制**：在 VR 中控制 splat 模型的位置和旋转
-- [ ] **LOD 支持**：根据距离调整 splat 渲染质量
+**解决方案**：
+1. 使用 `.dds` 格式的 cubemap 文件（完整 cubemap 数据）
+2. 或降低材质的 `reflectivity`，使用高 `shininess` + `specular` 颜色代替
 
 ---
 
 ## 问题排查
+
+### Q: 材质 useSkybox 不生效
+
+**检查**：
+1. `scene.skybox` 是否正确设置（控制台查看）
+2. 材质是否加载自 metal.json
+3. 是否为 PNG cubemap atlas（PNG 无法用于环境反射）
+
+**临时解决**：降低 `reflectivity`，增加 `shininess`
 
 ### Q: Y 按钮无响应
 
 **检查**：
 1. `onVrStart()` 中是否调用了 `vrController.setYButtonCallback()`
 2. 模拟器/手柄是否正确映射了 Y 按钮（索引 5）
-3. `leftController` 是否为 null（检查 update 中是否有 "Y button pressed" 日志）
+3. `leftController` 是否为 null
 
 ### Q: 语音面板不显示
 
 **检查**：
 1. `ElementInput` 是否在 Application 创建时启用
 2. UI 元素是否在正确的 Layer（UI Layer）
-3. `followTarget()` 是否被调用（Y 按钮按下时）
+3. `followTarget()` 是否被调用
 4. 面板缩放是否合适（`setLocalScale(0.005, 0.005, 1)`）
 
 ### Q: 控制器不显示
@@ -585,55 +671,33 @@ app.xr.input.on('remove', (inputSource) => {}) // 输入源移除
 **检查**：
 1. `VrController` 是否在 `onVrStart()` 中正确创建
 2. `update()` 是否被调用
-3. 实体是否添加到了场景（`app.root.addChild`）
-
-### Q: 汉字显示为方块
-
-**原因**：字体纹理图集不包含要显示的汉字字符
-
-**解决**：调用 `fontManager.updateFontTextures('SimHei', text)` 更新纹理
-
----
-
-## 代码规范
-
-### 类型定义
-
-- 使用 `pc.` 前缀访问 PlayCanvas 类型
-- 自定义类使用 PascalCase 命名
-- 接口使用 Interface 后缀（如 `CubeConfig`）
-
-### VR 控制器检测
-
-```typescript
-// 官方推荐模式：在 update 中检测 handedness
-update(dt): void {
-    this.rightController = null;
-    this.leftController = null;
-
-    for (const inputSource of this.app.xr?.input?.inputSources ?? []) {
-        if (inputSource.handedness === 'right') {
-            this.rightController = this.findController(inputSource);
-        } else if (inputSource.handedness === 'left') {
-            this.leftController = this.findController(inputSource);
-        }
-    }
-}
-```
-
----
-
-## 参考资源
-
-- [PlayCanvas XR 文档](https://developer.playcanvas.com/user-manual/xr/)
-- [PlayCanvas Engine API](https://playcanvas.github.io/engine/)
-- [WebXR 规范](https://immersive-web.github.io/webxr/)
-- [vr-controllers.example.mjs](../playcanvas/engine/examples/src/examples/xr/vr-controllers.example.mjs)
-- [xr-ui.example.mjs](../playcanvas/engine/examples/src/examples/xr/xr-ui.example.mjs)
+3. GLB 模型是否正确加载（AssetManager）
 
 ---
 
 ## 更新日志
+
+### 2026-05-23
+
+**AssetManager 资源集中管理**：
+
+- 新增 `src/app/asset-manager.ts`
+- 使用 `AssetListLoader` 异步加载 GLB、cubemap、材质资源
+- 统一管理 `leftController`、`rightController`、`skybox`、`metal` 资源
+
+**Sky 类重构**：
+- 通过 `this.app.assets.find('skybox')` 查找 skybox 资源
+- 通过 `asset.resources[1]` 访问 cubemap 纹理
+- 设置 `skyboxMip = 3` 控制 mipmap 级别
+
+**Ground 材质应用**：
+- 使用 AssetManager 预加载的 `metal` 材质
+- 通过 `app.assets.find('metal', 'material')` 获取材质资源
+
+**已知问题**：
+- PNG cubemap atlas 无法用于材质环境反射
+- `material.envTex` 为 `undefined`
+- 金属材质 `useSkybox` 属性不生效
 
 ### 2026-05-21
 
@@ -688,12 +752,3 @@ update(dt): void {
 - VR 中必须使用 3D world-space UI
 - `elementInput` 系统必须在 Application 创建时初始化
 - 面板跟随使用 `lookAt()` 正确朝向用户
-
-### 2026-04-17
-
-- 初始项目架构设计
-- 实现蓝色立方体显示
-- 实现 VR 会话管理
-- 实现 VR 控制器追踪
-- SplatLoader 实现 Gaussian Splatting 加载
-- 修复 Application vs AppBase 问题

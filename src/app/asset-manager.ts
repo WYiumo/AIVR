@@ -6,19 +6,19 @@ export class AssetManager {
 
     constructor(app: pc.Application) {
         this.app = app;
-        this.createAsset();
     }
 
-    private createAsset(): void {
+    private createDefaultAssets(): void {
         this.assets = [
             new pc.Asset('leftController', 'container', {url: 'assets/meta_quest_touch/left.glb'}),
             new pc.Asset('rightController', 'container', {url: 'assets/meta_quest_touch/right.glb'}),
             new pc.Asset('skybox', 'cubemap', {url: 'assets/cubemap/helipad-env-atlas.png'}),
-            new pc.Asset('metal', 'material', {url: 'assets/materials/metal.json'}),
+            new pc.Asset('metal', 'material', {url: 'assets/materials/metal.json'})
         ];
     }
 
-    async loadAsset(): Promise<void> {
+    async loadInitAsset(): Promise<void> {
+        this.createDefaultAssets();
         return new Promise((resolve, reject) => {
             if (!this.app) {
                 reject(new Error('AssetManager: app instance not provided'));

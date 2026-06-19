@@ -7,7 +7,7 @@ import * as pc from 'playcanvas';
 class FontManager {
     private static instance: FontManager;
     private fonts: Map<string, pc.CanvasFont> = new Map();
-    private app: pc.Application | null = null;
+    private app: pc.Application;
     private loadingFonts: Map<string, Promise<pc.CanvasFont>> = new Map();
     private defaultSampleText: string = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .:,/?!@#$%^&*()_+-=';
     private sampleTextUrl: string = 'assets/font/3500_symbols.txt';
@@ -40,10 +40,6 @@ class FontManager {
      * 加载字体
      */
     async loadFont(name: string, fontUrl: string): Promise<pc.CanvasFont> {
-        if (!this.app) {
-            throw new Error('FontManager 未初始化');
-        }
-
         // 返回已加载的字体
         if (this.fonts.has(name)) {
             return this.fonts.get(name)!;
@@ -64,10 +60,6 @@ class FontManager {
      * 执行字体加载
      */
     private async doLoadFont(name: string, fontUrl: string): Promise<pc.CanvasFont> {
-        if (!this.app) {
-            throw new Error('FontManager 未初始化');
-        }
-
         // 加载字体文件到浏览器
         await this.loadFontFace(name, fontUrl);
 

@@ -167,7 +167,7 @@ export class App {
         });
 
         // 初始化 ASR
-        // this.voicePanel.initASR();
+        this.voicePanel.initASR();
 
         // 隐藏VR按钮
         const vrBtn = document.getElementById('vr-button');

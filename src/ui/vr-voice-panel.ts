@@ -35,6 +35,7 @@ export class VrVoicePanel {
     // 状态
     private isRecording: boolean = false;
     private currentResult: string = '';
+    private isVisible: boolean = false;  // 面板可见性（默认隐藏）
 
     // UI 缩放比例
     // private uiScale: number = 0.001; // 1 UI pixel = 0.001 meters
@@ -54,6 +55,9 @@ export class VrVoicePanel {
         this.fontManager = FontManager.getInstance();
         this.font = this.fontManager.getFont('SimHei');
         this.createPanel();
+
+        // 默认隐藏
+        this.screenEntity.enabled = false;
     }
 
     /**
@@ -230,8 +234,12 @@ export class VrVoicePanel {
             inactiveTint: new pc.Color(0.2, 0.4, 0.8, 0.2)
         });
 
+        // 在XR射线选择后也会触发导致加载2次，暂时注释掉 --- IGNORE ---
         // 按钮点击事件（鼠标/触摸）
-        button.button?.on('click', action);
+        // button.button?.on('click', () =>{
+        //     console.log(`Button ${id} clicked`);
+        //     action();
+        // });
 
         // XR 射线选择事件
         button.button?.on('selectstart', () => {
@@ -407,6 +415,43 @@ export class VrVoicePanel {
     }
 
     /**
+     * 切换面板可见性
+     */
+    toggleVisibility(): void {
+        this.isVisible = !this.isVisible;
+        this.screenEntity.enabled = this.isVisible;
+        if (this.isVisible) {
+            // 显示时刷新位置
+            this.followTarget();
+        }
+    }
+
+    /**
+     * 显示面板
+     */
+    show(): void {
+        if (!this.isVisible) {
+            this.toggleVisibility();
+        }
+    }
+
+    /**
+     * 隐藏面板
+     */
+    hide(): void {
+        if (this.isVisible) {
+            this.toggleVisibility();
+        }
+    }
+
+    /**
+     * 获取面板可见性
+     */
+    isVisibleState(): boolean {
+        return this.isVisible;
+    }
+
+    /**
      * 开始按钮点击
      */
     private onStartClick(): void {
@@ -522,7 +567,6 @@ export class VrVoicePanel {
         this.asrHandler = new ASRHandler({
             onResult: (result) => {
                 this.appendResultText(result.text);
-                this.callbacks.onResult?.(result);
             },
             onError: (error) => {
                 console.error('[VrVoicePanel] ASR Error:', error);

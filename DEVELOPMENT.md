@@ -14,10 +14,12 @@
 - [x] 支持 VR 6DoF 相机
 - [x] 手柄控制器追踪
 - [x] 重新设置场景背景，添加地面和天空
-- [ ] VR 中与物体交互（抓取、移动）
+- [x] VR 中与物体交互（抓取、移动、旋转）
 - [x] 接入 SuperSplat Gaussian Splatting 渲染
 - [x] 语音控制（VR 3D UI + ASR iframe）
 - [x] VR 手柄 Y 按钮呼出语音面板
+- [x] 语音面板 Y 按钮显示/隐藏切换
+- [x] 语音触发加载 3D 点云模型
 
 ---
 
@@ -30,7 +32,7 @@ AIVR/src/
 ├── main.ts              # 应用入口，初始化 PlayCanvas Application
 ├── style.css            # 全局样式
 ├── app/
-│   ├── index.ts         # App 类 - 主应用逻辑，协调各模块
+│   ├── index.ts         # App 类 - 资源/会话/语音模型加载（薄协调层）
 │   ├── scene.ts         # Scene 类 - 场景管理，实体生命周期
 │   ├── vr-manager.ts     # VrManager 类 - VR 会话管理
 │   ├── asset-manager.ts  # AssetManager 类 - 资源预加载管理
@@ -42,6 +44,12 @@ AIVR/src/
 │   ├── sky.ts           # Sky 类 - 天空盒配置
 │   ├── controller.ts    # VrController 类 - VR 手柄控制器
 │   └── splat-loader.ts   # SplatLoader 类 - Gaussian Splatting 加载器
+├── interaction/         # VR 通用交互（拾取/抓取/旋转）
+│   ├── grabbable.ts            # Grabbable - 实体标签 + 注册
+│   ├── grabbable-registry.ts   # GrabbableRegistry - 可抓取表 + AABB pick
+│   ├── xr-picker.ts            # XRPicker - 监听 XR select 事件 + 射线拾取
+│   ├── manipulator.ts          # Manipulator - 抓取/移动/旋转
+│   └── interaction-manager.ts  # InteractionManager - 顶层协调
 └── ui/
     ├── vr-button.ts     # VR 入口按钮
     └── vr-voice-panel.ts # VR 3D 语音面板
@@ -432,15 +440,23 @@ fontManager.updateFontTextures('SimHei', '你好世界');
 
 **职责**：
 - 追踪 VR 手柄控制器
-- 处理手柄输入
+- 处理手柄输入（Y 切换面板、X 切旋转方向、Trigger 切换抓取、Grip 状态查询）
 - 实现抓取逻辑
-- Y 按钮回调（呼出语音面板）
 - GLB 模型加载与替换
 - 射线可视化
 
 **关键设计 - PlayCanvas 官方推荐模式**：
 
 > **重要**：不要在 `on('add')` 事件时检测 `inputSource.handedness`。此时 PlayCanvas 尚未同步 WebXR 数据，`handedness` 为 `undefined`。应在 `update()` 循环中检测。
+
+**按钮轮询回调**：
+
+| 按钮 | 回调 | 用途 |
+|------|------|------|
+| 左手 Y (index 5) | `setYButtonCallback(cb)` | 切换语音面板显示/隐藏 |
+| 左手 X (index 4) | `setXButtonCallback(cb)` | 切换模型旋转方向 |
+| 右手 Trigger (index 0) | `setRightTriggerToggleCallback(cb)` | 切换抓取状态（按下时触发一次） |
+| 任一手 Grip (index 1) | `isLeftGripHeld() / isRightGripHeld()` | App 每帧查询用于旋转 |
 
 **GLB 模型加载**：
 
@@ -464,7 +480,6 @@ private SetupControllerModel(controller: ControllerInfo): void {
                        handedness === 'right' ? this.rightModelAsset : null;
     if (!modelAsset) return;
 
-    // 添加 model 组件（GLB）
     const containerResource = modelAsset.resource as any;
     controller.entity.addComponent('model', {
         type: 'asset',
@@ -481,7 +496,6 @@ private SetupControllerModel(controller: ControllerInfo): void {
 ```typescript
 drawInputSourceRays(): void {
     if (!this.app.xr?.active) return;
-
     for (const inputSource of this.app.xr.input.inputSources) {
         if (inputSource.targetRayMode === pc.XRTARGETRAY_POINTER) {
             const origin = inputSource.getOrigin();
@@ -508,6 +522,8 @@ drawInputSourceRays(): void {
 | 5 | Y | B |
 | 6 |  |  |
 
+**Trigger 模式说明**：右手 Trigger 使用 **toggle** 模式（按下时触发一次），不是按住模式。释放由 App 调用 `vrController.endGrab()` 处理。`updateGrabbing()` 中已移除 `!inputSource.selecting` 自动释放逻辑。
+
 ---
 
 ### 9. VrVoicePanel (ui/vr-voice-panel.ts)
@@ -517,28 +533,222 @@ drawInputSourceRays(): void {
 - 提供语音输入控制按钮
 - 显示识别结果和状态
 - 跟随 VR 相机位置
+- **可见性切换**（默认隐藏，Y 按钮 toggle）
+
+**可见性方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `toggleVisibility()` | 切换显示/隐藏，显示时刷新位置 |
+| `show()` | 显示（无操作若已可见） |
+| `hide()` | 隐藏（无操作若已隐藏） |
+| `isVisibleState()` | 获取当前可见性 |
 
 **关键实现**：
 
-1. **World-space UI**：`screenSpace: false` 使 UI 存在于 3D 空间
-2. **LayoutGroup**：`orientation: VERTICAL/HORIZONTAL` 自动布局子元素
-3. **跟随相机**：
+1. **默认隐藏**：构造函数中 `this.screenEntity.enabled = false`
+2. **World-space UI**：`screenSpace: false` 使 UI 存在于 3D 空间
+3. **LayoutGroup**：`orientation: VERTICAL/HORIZONTAL` 自动布局子元素
+4. **跟随相机**：
    ```typescript
    followTarget(): void {
        const camera = this.scene.getCamera();
        const camPos = camera.getPosition();
        const forward = camera.forward;
-   
-       // 放置在相机前方 0.4 米
-       const panelPos = camPos.clone().add(forward.mulScalar(0.4));
+
+       // 放置在相机前方 1.2 米
+       const panelPos = new pc.Vec3().copy(camPos).add(forward.mulScalar(1.2));
        this.screenEntity.setPosition(panelPos);
        this.screenEntity.lookAt(camPos);
+       this.screenEntity.rotateLocal(-7.5, 180, 0);
    }
    ```
 
 ---
 
-### 10. ASR 模块 (asr/)
+### 10. 通用 VR 交互（src/interaction/）
+
+**目标**：把抓取/移动/旋转的逻辑从 `App` 类中抽出，拆成职责单一的多个类，让 App 保持薄。
+
+**模块组成**：
+
+| 类 | 职责 |
+|------|------|
+| `Grabbable` | 给实体打 `'grabbable'` 标签并注册到 Registry |
+| `GrabbableRegistry` | 管理所有可抓取实体；提供 `pick(ray)` 按 AABB 拾取 |
+| `XRPicker` | 监听 `app.xr.input.on('select', ...)`，对右手射线做命中测试 |
+| `Manipulator` | 抓取/释放 + 每帧应用摇杆旋转 |
+| `InteractionManager` | 组合 Registry/Picker/Manipulator；提供 toggle 抓取语义 |
+
+**完整流程**：
+
+```
+右手扳机射线指向 Grabbable 实体
+    ↓ XRPicker (select 事件)
+ray.set(getOrigin(), getDirection())
+    ↓ GrabbableRegistry.pick()
+遍历 grabbable 列表 → 找最近 ray-AABB 命中
+    ↓ onPicked 回调
+InteractionManager: 已抓取同物体？→ 释放；否则释放旧的 + 抓取新的
+    ↓ Manipulator.startHold()
+controller.entity.addChildAndSaveTransform(target)  // reparent
+    ↓ 每帧
+Grip 按下 + 摇杆方向 → Manipulator.update() 累积旋转
+```
+
+#### 关键 API（PlayCanvas 内置）
+
+| 需求 | 方案 |
+|------|------|
+| 射线拾取 | `app.xr.input.on('select', cb)` |
+| AABB 测试 | `meshInstance.aabb.intersectsRay(ray)` |
+| 标签筛选 | `entity.tags.add('grabbable')` + `findByTag` |
+| 跟随手柄 | `addChildAndSaveTransform`（保留世界变换） |
+| 旋转 | `Quat.setFromAxisAngle(axis, angle)` + `Quat.mul2` |
+| 摇杆读取 | `inputSource.gamepad.axes[2]` (X) / `[3]` (Y) |
+
+#### 为什么用 reparent 而不是 offset 跟随
+
+- **reparent 模式**：`controller.entity.addChildAndSaveTransform(target)`，物体成为 controller 实体子节点，PlayCanvas 每帧自动同步世界变换。无需手动算 offset，对相机/控制器延迟更鲁棒。
+- **offset 模式**（旧实现）：手动 `setPosition(gripPose + grabOffset)`，依赖每帧最新的 `getPosition()`，对抖动/延迟敏感。
+
+#### 旋转输入映射
+
+- 任一手 **Grip 按下** → 进入旋转模式
+- 右手摇杆方向（`axes[2/3]`）决定：
+  - `|x| > |y|` → 绕 **Y 轴** 旋转（量 = x）
+  - `|y| > |x|` → 绕 **X 轴** 旋转（量 = y）
+  - 死区 0.3
+- Z 轴旋转可由左手 X 按钮叠加（未来扩展）
+
+#### Grabbable 标签使用
+
+在创建可抓取实体的位置（如 `SplatLoader.load()`）调用 `entity.tags.add('grabbable')`。`XRPicker` 只会命中带此标签的实体。
+
+#### 类签名速查
+
+```ts
+// Grabbable
+class Grabbable {
+    constructor(entity: pc.Entity, registry: GrabbableRegistry);
+    destroy(registry: GrabbableRegistry): void;
+}
+
+// GrabbableRegistry
+class GrabbableRegistry {
+    register(g: Grabbable): void;
+    unregister(g: Grabbable): void;
+    pick(ray: pc.Ray): Grabbable | null;
+}
+
+// XRPicker
+class XRPicker {
+    constructor(app, registry: GrabbableRegistry, onPicked: (g, src) => void);
+    destroy(): void;
+}
+
+// Manipulator
+class Manipulator {
+    startHold(g: Grabbable, inputSource: pc.XrInputSource): void;
+    endHold(): void;
+    isHolding(g?: Grabbable): boolean;
+    update(dt: number): void;
+}
+
+// InteractionManager
+class InteractionManager {
+    readonly registry: GrabbableRegistry;
+    readonly manipulator: Manipulator;
+    update(dt: number): void;
+    destroy(): void;
+}
+```
+
+#### 在 App 中集成
+
+```ts
+// onVrStart():
+this.vrController = new VrController(this.app);
+this.interaction = new InteractionManager(this.app, this.vrController);
+
+// update(dt):
+this.vrController?.update(dt);
+this.interaction?.update(dt);
+this.scene.update(dt);
+
+// onVrEnd():
+this.interaction?.destroy();
+this.interaction = null;
+```
+
+**App 类不再持有**：grab/rotate 状态、`loadModelInFrontOfCamera` 的 grab 清理、`applyRotationIfGripHeld`、Trigger 回调。
+
+---
+
+### 11. 3D 模型加载（语音触发）
+
+**职责**：语音面板 send 触发 `App.loadModelInFrontOfCamera()`，将 `/avocado_chair.ply` 加载到相机前方 1.5m（y -= 0.2）处，加载后自动打 `'grabbable'` 标签（由 `SplatLoader` 完成），即可被 `XRPicker` 拾取。
+
+**App 中的实现**（简化版）：
+
+```typescript
+private async loadModelInFrontOfCamera(): Promise<void> {
+    const camera = this.scene.getCamera();
+    if (!camera) return;
+
+    const camPos = camera.getPosition();
+    const forward = camera.forward;
+    const pos = new pc.Vec3().copy(camPos).add(forward.mulScalar(this.MODEL_DISTANCE));
+    pos.y -= 0.2;
+
+    if (!this.splatLoader) this.splatLoader = new SplatLoader(this.app);
+
+    // 销毁旧模型前先释放正在抓取的物体
+    if (this.splatLoader.getEntity()) {
+        this.interaction?.manipulator.endHold();
+        this.splatLoader.destroy();
+    }
+
+    try {
+        await this.splatLoader.load({
+            url: this.DEFAULT_MODEL_URL,  // '/avocado_chair.ply'
+            position: pos,
+            scale: new pc.Vec3(1, 1, 1)
+        });
+        // SplatLoader 内部已 addTag('grabbable')
+        this.voicePanel?.setStatus('State: Model loaded');
+    } catch (e) {
+        console.error('模型加载失败:', e);
+        this.voicePanel?.setStatus('State: Load failed');
+    }
+}
+```
+
+**注意**：App 不再持有 grab/rotate 状态；这些状态全部由 `Manipulator` 管理。
+
+**完整交互流程**：
+
+```
+[VR 中]
+  ↓ Y 按钮
+显示/隐藏语音面板
+  ↓ start → 录音 → stop → send
+加载 /avocado_chair.ply 到相机前方 1.5m
+  ↓ 右手扳机射线指向物体，按 Trigger
+XRPicker 选中 → InteractionManager.toggleHold
+  ↓ 物体被 reparent 到 controller 实体下
+物体跟随右手移动
+  ↓ 按住任一手 Grip + 推右手摇杆
+Manipulator.update() 累积旋转
+  ↓ 摇杆左右 → 绕 Y 轴；上下 → 绕 X 轴
+旋转物体
+  ↓ 再次按 Trigger 选中同一物体
+释放物体 → 还原到原父节点
+```
+
+---
+
+### 11. ASR 模块 (asr/)
 
 **架构**：
 - `asr-handler.ts` - 父页面模块，与 iframe 通信
@@ -698,6 +908,89 @@ this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
 - PNG cubemap atlas 无法用于材质环境反射
 - `material.envTex` 为 `undefined`
 - 金属材质 `useSkybox` 属性不生效
+
+### 2026-07-10
+
+**架构重构 — VR 通用交互模块 (`src/interaction/`)**
+
+**问题**：之前的实现把加载模型、切换抓取、3 轴 tumble 旋转、清理状态全部堆在 `App` 类中，超过 380 行；`applyRotationIfGripHeld` 把 X/Y/Z 同时累加（实际是 tumble 而非真正的"绕 X/Y/Z 轴独立旋转"）。
+
+**新模块**：
+
+| 文件 | 职责 |
+|------|------|
+| `interaction/grabbable.ts` | 实体打 `grabbable` 标签 + 注册到 Registry |
+| `interaction/grabbable-registry.ts` | 管理可抓取表；`pick(ray)` 按 AABB 拾取 |
+| `interaction/xr-picker.ts` | 监听 `app.xr.input.on('select', ...)`，对右手射线做命中测试 |
+| `interaction/manipulator.ts` | 抓取/释放 + 每帧应用摇杆旋转 |
+| `interaction/interaction-manager.ts` | 顶层协调（toggle 抓取语义） |
+
+**PlayCanvas 内置 API 使用**：
+- `app.xr.input.on('select', cb)` 替代 gamepad 轮询
+- `entity.tags.add('grabbable')` + `findByTag` 标签系统
+- `addChildAndSaveTransform` 替代手动算 offset 跟随
+- `Quat.setFromAxisAngle` + `mul2` 累积旋转
+- `meshInstance.aabb.intersectsRay(ray)` 射线-AABB 测试
+
+**抓取流程变更**：
+- 旧：Trigger toggle → 切换 `isGrabbing` 状态，offset 跟随
+- 新：扳机射线指向 → XRPicker 拾取 → Manipulator.startHold → reparent 到 controller 实体下（自动跟随）→ 再次扳机释放
+
+**旋转输入变更**：
+- 旧：摇杆 Y 主导选 X 轴 + 摇杆 X 主导选 Y 轴
+- 新：Grip 按下 + 右手摇杆 → 摇杆左右 → 绕 Y 轴；摇杆上下 → 绕 X 轴
+- 死区 0.3，旋转量 = 摇杆偏转 × ROTATION_SPEED × dt
+
+**App 类瘦身**：
+- 不再持有 `currentSplatEntity`、`isGrabbing`、`rotationDirection`、`currentRotationX/Y/Z` 状态
+- 不再有 `applyRotationIfGripHeld`、`toggleGrab`
+- 不再有 Trigger 切换抓取回调
+- 仅剩：资源加载、VR 生命周期、语音面板、调用 `loadModelInFrontOfCamera()`、集成 `InteractionManager`
+
+**SplatLoader 变更**：
+- 加载成功后 `entity.tags.add('grabbable')`，自动加入可抓取列表
+- 销毁时无需手动注销（实体销毁即移除）
+
+**VrController 变更**：
+- 新增 `findByInputSource(inputSource)` 公共方法
+- 保留所有现有 polling 回调（Y/X/Trigger/Grip 状态）供 Manipulator 使用
+- 删除 `updateGrabbing` 的 auto-release on `!selecting`（由 Manipulator.toggleHold 接管）
+
+### 2026-07-02
+
+**VR 语音面板可见性切换**：
+- `VrVoicePanel` 默认隐藏（`screenEntity.enabled = false`）
+- 新增 `toggleVisibility()` / `show()` / `hide()` / `isVisibleState()` 方法
+- Y 按钮改为切换显示/隐藏（显示时刷新位置）
+
+**3D 点云模型动态加载**：
+- 语音面板 send 按钮触发 `App.loadModelInFrontOfCamera()`
+- 加载 `/avocado_chair.ply` 到相机前方 1.5m 处（y -= 0.2 略低于视线）
+- scale `(1, 1, 1)`，姿态：`setLocalEulerAngles(0, currentRotationY, 0)`
+- 加载失败时 `voicePanel.setStatus('State: Load failed')`
+
+**右手 Trigger 切换抓取（toggle 模式）**：
+- `VrController` 新增 `setRightTriggerToggleCallback`，按下时触发一次
+- `App.toggleGrab()` 切换 `isGrabbing` 状态，调用 `startGrab` / `endGrab`
+- 抓取状态下模型跟随右手移动
+- `updateGrabbing()` 移除自动释放逻辑（不再依赖 `selecting` 事件）
+
+**旋转控制（仅抓取时生效）**：
+- 左手 X 按钮：`App.rotationDirection *= -1`，console 输出当前方向（CCW/CW）
+- 任一手 Grip 按下：`App.applyRotationIfGripHeld()` 每帧累加 `currentRotationX/Y/Z`
+- 旋转轴：模型自身 **X、Y、Z 三轴同时**（每次累加相同的 delta）
+- API：`setLocalEulerAngles(rx, ry, rz)`
+- 速度：`ROTATION_SPEED = 2.5` rad/s
+
+**清理逻辑**：
+- `App.onVrEnd()` 销毁模型并重置状态（`isGrabbing`、`rotationDirection`、`currentRotationY`）
+- `loadModelInFrontOfCamera()` 销毁旧模型前先 `endGrab`，避免目标失效
+- `main.ts` 移除启动时的 `setTimeout` 加载测试
+
+**VrController 新增公共接口**：
+- `setXButtonCallback(cb)` - 左手 X 按钮按下回调
+- `setRightTriggerToggleCallback(cb)` - 右手 Trigger 切换回调
+- `isLeftGripHeld()` / `isRightGripHeld()` - Grip 按住状态查询
 
 ### 2026-05-21
 

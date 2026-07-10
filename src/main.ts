@@ -5,7 +5,6 @@ import {
     RESOLUTION_AUTO,
     Mouse,
     TouchDevice,
-    Vec3,
     ElementInput
 } from 'playcanvas';
 import { App } from './app';
@@ -57,26 +56,7 @@ async function initApp() {
 
     console.log('AIVR 应用已启动');
 
-    // 测试：加载示例splat文件
-    setTimeout(async () => {
-        try {
-            // 文件位于 D:\Study\project\playcanvas\AIVR\public\canonical.ply
-            await aivrApp.loadSplat(
-                '/canonical.ply',
-                new Vec3(0, 2, 2),
-                new Vec3(1, 1, -1)
-            );
-            // await aivrApp.loadSplat(
-            //     '/room.ply',
-            //     new Vec3(0, 4, 0),
-            //     new Vec3(1, -1, 1)
-            // );
-
-            console.log('Splat加载成功');
-        } catch (e) {
-            console.error('Splat加载失败:', e);
-        }
-    }, 1000);
+    // 3D 模型加载现在由用户在 VR 中通过语音面板的 send 按钮触发
 }
 
 // 启动应用

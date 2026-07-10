@@ -24,9 +24,21 @@ export class VrController {
 
     private grabbedEntity: pc.Entity | null = null;
     private grabOffset: pc.Vec3 = new pc.Vec3();
-    
+
     private onYButtonPressed: (() => void) | null = null;
     private prevYButtonState: boolean = false;
+
+    // X 按钮（左手）切换回调
+    private onXButtonPressed: (() => void) | null = null;
+    private prevXButtonState: boolean = false;
+
+    // 右手 Trigger toggle 回调（按下时触发一次）
+    private onRightTriggerToggle: (() => void) | null = null;
+    private prevRightTriggerState: boolean = false;
+
+    // 双手 Grip 状态，供 App 每帧查询
+    private leftGripHeld: boolean = false;
+    private rightGripHeld: boolean = false;
 
     // 模型资产
     private leftModelAsset: pc.Asset | null = null;
@@ -174,6 +186,36 @@ export class VrController {
             this.prevYButtonState = yButtonPressed;
         }
 
+        // 检测左手 X 按钮 (按钮索引 4)
+        if (this.leftController) {
+            const gamepad = (this.leftController.inputSource as any).gamepad;
+            const xPressed = gamepad?.buttons?.[4]?.pressed ?? false;
+            if (xPressed && !this.prevXButtonState) {
+                this.onXButtonPressed?.();
+            }
+            this.prevXButtonState = xPressed;
+        }
+
+        // 右手 Trigger (按钮索引 0) - toggle 模式
+        if (this.rightController) {
+            const gamepad = (this.rightController.inputSource as any).gamepad;
+            const tPressed = gamepad?.buttons?.[0]?.pressed ?? false;
+            if (tPressed && !this.prevRightTriggerState) {
+                this.onRightTriggerToggle?.();
+            }
+            this.prevRightTriggerState = tPressed;
+        }
+
+        // 双手 Grip (按钮索引 1) - 暴露状态给 App.update()
+        if (this.leftController) {
+            const gamepad = (this.leftController.inputSource as any).gamepad;
+            this.leftGripHeld = gamepad?.buttons?.[1]?.pressed ?? false;
+        }
+        if (this.rightController) {
+            const gamepad = (this.rightController.inputSource as any).gamepad;
+            this.rightGripHeld = gamepad?.buttons?.[1]?.pressed ?? false;
+        }
+
         // 射线可视化
         this.drawInputSourceRays();
     }
@@ -206,6 +248,36 @@ export class VrController {
     }
 
     /**
+     * 设置 X 按钮按下回调（左手）
+     */
+    setXButtonCallback(callback: () => void): void {
+        this.onXButtonPressed = callback;
+    }
+
+    /**
+     * 设置右手 Trigger 切换回调（按下时触发一次）
+     */
+    setRightTriggerToggleCallback(callback: () => void): void {
+        console.log("Toggle Callback Set");
+        
+        this.onRightTriggerToggle = callback;
+    }
+
+    /**
+     * 获取左手 Grip 是否被按住
+     */
+    isLeftGripHeld(): boolean {
+        return this.leftGripHeld;
+    }
+
+    /**
+     * 获取右手 Grip 是否被按住
+     */
+    isRightGripHeld(): boolean {
+        return this.rightGripHeld;
+    }
+
+    /**
      * 更新抓取逻辑
      */
     private updateGrabbing(controller: ControllerInfo, inputSource: pc.XrInputSource): void {
@@ -216,12 +288,7 @@ export class VrController {
                 this.grabbedEntity.setPosition(newPos);
             }
         }
-
-        // 释放抓取
-        if (controller.isGrabbing && !inputSource.selecting) {
-            controller.isGrabbing = false;
-            this.grabbedEntity = null;
-        }
+        // 注：释放抓取由 App 通过 Trigger toggle 回调驱动（见 App.toggleGrab / endGrab）
     }
 
     /**
@@ -285,6 +352,13 @@ export class VrController {
      */
     getLeftController(): ControllerInfo | null {
         return this.leftController;
+    }
+
+    /**
+     * 根据输入源查找对应的 ControllerInfo
+     */
+    findByInputSource(inputSource: pc.XrInputSource): ControllerInfo | null {
+        return this.controllers.find(c => c.inputSource === inputSource) ?? null;
     }
 
     /**

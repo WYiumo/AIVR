@@ -42,12 +42,11 @@ export class Sky {
 
     constructor(app: pc.Application, config: SkyConfig = {}) {
         this.app = app;
-        this.skyboxAsset= this.app.assets.find('skybox');
+        this.skyboxAsset= this.app.assets.find('cubemap:skybox');
         this.config = {
             type: config.type ?? 'dome',
             scale: config.scale ?? 200,
             centerHeight: config.centerHeight ?? 0.05,
-            // cubemapAsset: config.cubemapAsset,
             rotation: config.rotation ?? 180,
             exposure: config.exposure ?? 1.0
         };
@@ -72,7 +71,7 @@ export class Sky {
 
         // 设置天空盒 Cubemap
         if (this.skyboxAsset) {
-            this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
+            this.app.scene.setSkybox(this.skyboxAsset.resources as pc.Texture[]);
         }
 
         this.app.scene.skyboxMip = 3;

@@ -1,10 +1,10 @@
 import * as pc from 'playcanvas';
-import { VrManager } from '../app/vr-manager';
+import { VrManager } from '../manager/vr-manager';
 
 /**
  * 创建VR入口按钮
  */
-export function createVrButton(vrManager: VrManager, cameraEntity: pc.Entity): HTMLButtonElement {
+export function initstartPage(vrManager: VrManager, cameraEntity: pc.Entity): HTMLButtonElement {
     const btn = document.createElement('button');
     btn.id = 'vr-button';
     btn.textContent = '进入VR';
@@ -27,7 +27,7 @@ export function createVrButton(vrManager: VrManager, cameraEntity: pc.Entity): H
 
     // 悬停效果
     btn.onmouseover = () => {
-        btn.style.background = '#5aa0e9';
+        btn.style.background = '#033668';
     };
     btn.onmouseout = () => {
         btn.style.background = '#4a90d9';
@@ -41,13 +41,11 @@ export function createVrButton(vrManager: VrManager, cameraEntity: pc.Entity): H
                 alert('WebXR不支持此浏览器。请使用支持的浏览器（如Meta Quest浏览器、Chrome等）');
                 return;
             }
-
             // 再检查VR是否可用
             if (!vrManager.isAvailable()) {
                 alert('VR不可用，请确保已连接VR设备');
                 return;
             }
-
             // 启动VR
             await vrManager.startVr(cameraEntity);
         } catch (e) {

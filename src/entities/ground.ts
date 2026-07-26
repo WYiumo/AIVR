@@ -30,7 +30,7 @@ export class Ground {
         // this.material = new pc.StandardMaterial();
         // this.material.diffuse = color;
         // this.material.update();
-        const materialasset = app.assets.find('metal', 'material') as pc.Asset;
+        const materialasset = app.assets.find('material:metal') as pc.Asset;
         this.material = materialasset.resource as pc.StandardMaterial;
         this.material.update();
 

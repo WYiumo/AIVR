@@ -65,14 +65,12 @@ const defaultConfig: SceneConfig = {
 
 /**
  * 场景管理器
- * 负责场景创建、实体管理和VR支持
+ * 负责3D场景的创建、配置和管理
  */
 export class Scene {
     readonly app: pc.Application;
     readonly config: SceneConfig;
 
-    private entities: Set<pc.Entity> = new Set();
-    private cameraEntity: pc.Entity | null = null;
     private ground: Ground | null = null;
     private sky: Sky | null = null;
 
@@ -85,11 +83,10 @@ export class Scene {
         this.config = { ...defaultConfig, ...config };
     }
 
-    async init(): Promise<void> {
+    init(): void {
         this.setupScene();
         this.setupSky();
         this.setupGround();
-        // this.setupEventListeners();
     }
 
     /**
@@ -140,47 +137,4 @@ export class Scene {
         return this.sky;
     }
 
-    /**
-     * 获取相机实体
-     */
-    getCamera(): pc.Entity | null {
-        return this.cameraEntity;
-    }
-
-    /**
-     * 设置相机实体
-     */
-    setCamera(entity: pc.Entity): void {
-        this.cameraEntity = entity;
-    }
-
-    /**
-     * 添加实体到场景
-     */
-    addEntity(entity: pc.Entity): void {
-        this.entities.add(entity);
-        this.app.root.addChild(entity);
-    }
-
-    /**
-     * 从场景移除实体
-     */
-    removeEntity(entity: pc.Entity): void {
-        this.entities.delete(entity);
-        entity.destroy();
-    }
-
-    /**
-     * 更新所有实体
-     */
-    update(_dt: number): void {
-        // 可扩展：批量更新实体
-    }
-
-    /**
-     * 获取所有实体
-     */
-    getEntities(): Set<pc.Entity> {
-        return this.entities;
-    }
 }

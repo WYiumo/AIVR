@@ -1,4 +1,3 @@
-import './style.css';
 import {
     Application,
     FILLMODE_FILL_WINDOW,
@@ -39,7 +38,6 @@ async function initApp() {
 
     // 创建AIVR应用实例
     const aivrApp = new App(app, {
-        xrCompatible: true,
         debug: true
     });
 

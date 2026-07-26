@@ -3,19 +3,14 @@ import * as pc from 'playcanvas';
 export type XrSessionType = typeof pc.XRTYPE_VR;
 export type XrReferenceSpaceType = typeof pc.XRSPACE_LOCALFLOOR;
 
-export interface VrManagerEvents {
-    'sessionstart': () => void;
-    'sessionend': () => void;
-}
 
 /**
  * VR会话管理器
- * 负责VR会话的启动、停止和事件监听
+ * 负责VR会话的启动、停止
  */
 export class VrManager {
     private app: pc.Application;
     private _isActive: boolean = false;
-    private eventListeners: Map<keyof VrManagerEvents, Set<Function>> = new Map();
 
     constructor(app: pc.Application) {
         this.app = app;
@@ -75,7 +70,7 @@ export class VrManager {
                         reject(err);
                     } else {
                         this._isActive = true;
-                        this.emit('sessionstart');
+                        this.app.fire('sessionstart');
                         resolve();
                     }
                 }
@@ -89,27 +84,6 @@ export class VrManager {
     endVr(): void {
         this.app.xr?.end();
         this._isActive = false;
-        this.emit('sessionend');
-    }
-
-    /**
-     * 监听VR事件
-     */
-    on(event: keyof VrManagerEvents, callback: Function): void {
-        if (!this.eventListeners.has(event)) {
-            this.eventListeners.set(event, new Set());
-        }
-        this.eventListeners.get(event)!.add(callback);
-    }
-
-    /**
-     * 取消监听VR事件
-     */
-    off(event: keyof VrManagerEvents, callback: Function): void {
-        this.eventListeners.get(event)?.delete(callback);
-    }
-
-    private emit(event: keyof VrManagerEvents): void {
-        this.eventListeners.get(event)?.forEach(cb => cb());
+        this.app.fire('sessionend');
     }
 }

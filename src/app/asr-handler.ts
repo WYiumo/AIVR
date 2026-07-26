@@ -1,3 +1,4 @@
+import * as pc from 'playcanvas';
 /**
  * ASR 处理器模块
  * 负责与 ASR iframe 通信，管理语音识别状态
@@ -13,29 +14,24 @@ export interface ASRResult {
     };
 }
 
-export interface ASRHandlerCallbacks {
-    onResult?: (result: ASRResult) => void;
-    onError?: (error: Error) => void;
-    onStatusChange?: (status: string) => void;
-    onEngineChange?: (engine: string) => void;
-    onReady?: () => void;
-}
 
 export class ASRHandler {
+    private app: pc.Application;
     private iframe: HTMLIFrameElement | null = null;
-    private callbacks: ASRHandlerCallbacks;
     private isReady: boolean = false;
     private pendingCommands: string[] = [];
 
-    constructor(callbacks: ASRHandlerCallbacks = {}) {
-        this.callbacks = callbacks;
+    constructor(app: pc.Application) {
+        this.app = app;
+
         this.setupMessageListener();
+        this.registerVoiceEvents();
     }
 
     /**
      * 初始化 ASR iframe
      */
-    init(iframeSrc: string = '/asr/index02.html'): void {
+    async init(iframeSrc: string = '/asr/index02.html'): Promise<void> {
         // 创建 iframe
         this.iframe = document.createElement('iframe');
         this.iframe.src = iframeSrc;
@@ -51,7 +47,7 @@ export class ASRHandler {
         this.iframe.onload = () => {
             console.log('[ASRHandler] ASR iframe loaded');
             this.isReady = true;
-            this.callbacks.onReady?.();
+            this.app.fire('voice:upStatus','ASR Ready');
             this.flushPendingCommands();
         };
     }
@@ -71,10 +67,7 @@ export class ASRHandler {
 
             switch (data.type) {
                 case 'asr_result':
-                    this.callbacks.onResult?.({
-                        text: data.text,
-                        metadata: data.metadata
-                    });
+                    this.app.fire('voice:upResult', data.text);
                     break;
 
                 case 'asr_session_request':
@@ -86,17 +79,29 @@ export class ASRHandler {
                     break;
 
                 case 'asr_status':
-                    this.callbacks.onStatusChange?.(data.status);
+                    this.app.fire('voice:upStatus', data.status);
                     break;
 
                 case 'asr_engine_change':
-                    this.callbacks.onEngineChange?.(data.engine);
+                    this.app.fire('voice:engineChange', data.engine);
                     break;
 
                 case 'asr_error':
-                    this.callbacks.onError?.(new Error(data.message));
+                    this.app.fire('voice:error', new Error(data.message));
                     break;
             }
+        });
+    }
+
+    private registerVoiceEvents(): void {
+        this.app.on('voice:startRecording',()=>{
+            this.sendCommand('start');
+        });
+        this.app.on('voice:stopRecording',()=>{
+            this.sendCommand('stop');
+        });
+        this.app.on('voice:clearResults',()=>{
+            this.sendCommand('clear');
         });
     }
 
@@ -130,26 +135,6 @@ export class ASRHandler {
         }
     }
 
-    /**
-     * 开始录音
-     */
-    startRecording(): void {
-        this.sendCommand('start');
-    }
-
-    /**
-     * 停止录音
-     */
-    stopRecording(): void {
-        this.sendCommand('stop');
-    }
-
-    /**
-     * 清空结果
-     */
-    clearResults(): void {
-        this.sendCommand('clear');
-    }
 
     /**
      * 切换 ASR 引擎

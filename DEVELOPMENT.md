@@ -4,9 +4,10 @@
 
 | 技术 | 版本 | 说明 |
 |------|------|------|
-| PlayCanvas Engine | 2.17.2 | WebGL/WebXR 3D 引擎 |
+| PlayCanvas Engine | 2.20.6 | WebGL/WebXR 3D 引擎 |
 | TypeScript | ~6.0.2 | 类型安全 |
 | Vite | ^8.0.8 | 构建工具 |
+| Axios | ^1.16.1 | HTTP 客户端（后端 API 通信） |
 
 ### 目标
 
@@ -17,9 +18,12 @@
 - [x] VR 中与物体交互（抓取、移动、旋转）
 - [x] 接入 SuperSplat Gaussian Splatting 渲染
 - [x] 语音控制（VR 3D UI + ASR iframe）
-- [x] VR 手柄 Y 按钮呼出语音面板
-- [x] 语音面板 Y 按钮显示/隐藏切换
+- [x] VR 手柄 Y 按钮呼出工具轮盘
+- [x] 工具轮盘：语音面板 / 物体控制 / 定向移动
 - [x] 语音触发加载 3D 点云模型
+- [x] 物体操控面板（移动 / 旋转 / 缩放）
+- [x] Trigger 射线拾取 + 抓取物体
+- [x] 手柄摇杆控制物体 Transform
 
 ---
 
@@ -30,40 +34,44 @@
 ```
 AIVR/src/
 ├── main.ts              # 应用入口，初始化 PlayCanvas Application
+├── app.ts               # App 类 - 总协调器（薄层）
+├── utils.ts             # 工具函数（按键常量、splat 加载、AABB 检测）
 ├── style.css            # 全局样式
 ├── app/
-│   ├── index.ts         # App 类 - 资源/会话/语音模型加载（薄协调层）
-│   ├── scene.ts         # Scene 类 - 场景管理，实体生命周期
-│   ├── vr-manager.ts     # VrManager 类 - VR 会话管理
-│   ├── asset-manager.ts  # AssetManager 类 - 资源预加载管理
-│   └── font-manager.ts  # FontManager 类 - 单例字体管理器
-├── asr/
-│   └── asr-handler.ts   # ASR 处理器，与 iframe 通信
+│   ├── scene.ts              # Scene 类 - 场景管理（环境光/天空/地面）
+│   ├── xrInput-detector.ts   # XrInputDetector - XR 输入手势检测
+│   ├── objectIpulation-proxy.ts # ObjectIpulationProxy - 物体操作代理
+│   ├── asr-handler.ts        # ASRHandler - ASR iframe 通信处理器
+│   └── api.ts                # Axios 基础配置（后端 API 地址）
 ├── entities/
-│   ├── ground.ts         # Ground 类 - 地面实体
-│   ├── sky.ts           # Sky 类 - 天空盒配置
-│   ├── controller.ts    # VrController 类 - VR 手柄控制器
-│   └── splat-loader.ts   # SplatLoader 类 - Gaussian Splatting 加载器
-├── interaction/         # VR 通用交互（拾取/抓取/旋转）
-│   ├── grabbable.ts            # Grabbable - 实体标签 + 注册
-│   ├── grabbable-registry.ts   # GrabbableRegistry - 可抓取表 + AABB pick
-│   ├── xr-picker.ts            # XRPicker - 监听 XR select 事件 + 射线拾取
-│   ├── manipulator.ts          # Manipulator - 抓取/移动/旋转
-│   └── interaction-manager.ts  # InteractionManager - 顶层协调
+│   ├── playerController.ts   # PlayerController - 玩家相机 + VR 手柄模型
+│   ├── ground.ts             # Ground - 地面实体
+│   ├── sky.ts                # Sky - 天空盒配置
+│   ├── cube.ts               # Cube - 测试用立方体实体
+│   └── elementContainer.ts   # ElementContainer - 可交互 3D 元素包装
+├── manager/
+│   ├── vr-manager.ts         # VrManager - VR 会话管理
+│   ├── assetLoader.ts        # AssetManager - 资源预加载管理
+│   ├── font.ts               # FontManager - 单例字体管理器
+│   └── interaction.ts        # InteractionManager - VR 交互状态机
 └── ui/
-    ├── vr-button.ts     # VR 入口按钮
-    └── vr-voice-panel.ts # VR 3D 语音面板
+    ├── start-page.ts         # VR 入口按钮（DOM）
+    ├── voice-panel.ts        # VoicePanel - VR 3D 语音面板
+    ├── tools-wheel.ts        # ToolsWheel - 工具选择轮盘
+    └── object-panel.ts       # ObjectPanel - 物体操作面板
 
-AIVR/asr/                # ASR 模块（独立）
+AIVR/asr/                # ASR 模块（独立 iframe）
 ├── index02.html         # ASR UI 入口页面
-├── core.html            # 轻量级 ASR 核心（仅 API，无 UI）
+├── main.js              # ASR 主入口
 ├── asr-manager.js       # 多引擎 ASR 管理器
 ├── recorder-core.js     # 录音核心
-├── pcm.js / wav.js     # 编码器
+├── pcm.js / wav.js      # 编码器
 ├── wsconnecter.js       # WebSocket 连接
 ├── webspeech-engine.js  # 浏览器语音引擎
 ├── funasr-engine.js     # FunASR 服务器引擎
 ├── sherpa-asr-engine.js # Sherpa-ONNX 本地引擎
+├── sherpa-fallback-engine.js # Sherpa 降级引擎
+├── lightweight-optimizer.js  # 轻量级优化器
 └── web-assembly-vad-asr-sherpa-onnx-zh-en-paraformer-small/ # WASM 模型
 ```
 
@@ -80,44 +88,37 @@ AIVR/asr/                # ASR 模块（独立）
                         ▼
 ┌─────────────────────────────────────────────────────┐
 │                       App                           │
-│  (app/index.ts)                                     │
-│  - 协调 Scene、VrManager、Entity                     │
+│  (app.ts)                                           │
+│  - 协调 Scene、VrManager、Entity 初始化              │
 │  - 处理 VR 会话生命周期                                │
-│  - 管理 VrController、VrVoicePanel                   │
-└───────────┬─────────────────────┬───────────────────┘
-            │                     │
-            ▼                     ▼
-┌───────────────────┐   ┌───────────────────┐
-│      Scene        │   │    VrManager      │
-│  (scene.ts)       │   │  (vr-manager.ts)  │
-│  - 场景配置         │   │  - 会话管理        │
-│  - 实体列表         │   │  - 事件发射        │
-└───────────────────┘   └───────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────┐
-│                     Entities                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │   Ground    │  │    Sky      │  │VrController │  │
-│  │ (ground.ts) │  │  (sky.ts)   │  │(controller) │  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  │
-│  ┌─────────────┐  ┌─────────────┐                    │
-│  │SplatLoader  │  │             │                    │
-│  │(splat-load) │  │             │                    │
-│  └─────────────┘  └─────────────┘                    │
-└─────────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────┐
-│                        UI                           │
-│  ┌─────────────────┐ ┌─────────────────────────────┐│
-│  │   VrButton      │ │    VrVoicePanel             ││
-│  │ (vr-button.ts)  │ │    (vr-voice-panel.ts)      ││
-│  └─────────────────┘ │  - 3D world-space UI        ││
-│                      │  - ASR 通信                  ││
-│                      │  - Y 按钮呼出                ││
-│                      └─────────────────────────────┘│
-└─────────────────────────────────────────────────────┘
+│  - 集成 InteractionManager                          │
+└──┬──────────┬──────────┬───────────┬────────────────┘
+   │          │          │           │
+   ▼          ▼          ▼           ▼
+┌──────┐ ┌──────┐ ┌──────────┐ ┌──────────┐
+│Scene │ │VrMgr │ │AssetMgr  │ │FontMgr   │
+└──┬───┘ └──┬───┘ └──────────┘ └──────────┘
+   │        │
+   ▼        ▼
+┌──────┐ ┌─────────────────────┐
+│Ground│ │  PlayerController   │
+│ Sky  │ │  - 相机 + 手柄模型    │
+└──────┘ └──────────┬──────────┘
+                    │
+    ┌───────────────┼───────────────┐
+    ▼               ▼               ▼
+┌────────┐  ┌──────────────┐  ┌──────────┐
+│Tools   │  │ VoicePanel   │  │Object    │
+│Wheel   │  │              │  │Panel     │
+└────────┘  └──────────────┘  └──────────┘
+                    │
+      ┌─────────────┼─────────────┐
+      ▼             ▼             ▼
+┌──────────┐ ┌──────────┐ ┌───────────────┐
+│XrInput   │ │Object    │ │Interaction    │
+│Detector  │ │Ipulation │ │Manager        │
+│          │ │Proxy     │ │(状态机)        │
+└──────────┘ └──────────┘ └───────────────┘
 ```
 
 ---
@@ -159,27 +160,40 @@ app.on('update', (dt: number) => {
 
 ---
 
-### 2. App (app/index.ts)
+### 2. App (app.ts)
 
 **职责**：
-- 协调各模块的工作
-- 管理 VR 会话生命周期
-- 提供统一的更新循环
-- 管理 VrController 和 VrVoicePanel
+- 协调各模块初始化（Scene、VrManager、AssetManager、FontManager、PlayerController）
+- 管理 VR 会话生命周期（`sessionstart` / `sessionend`）
+- 作为顶层薄协调器，业务逻辑委托给各子模块
+
+**App 不再是重量级类**：所有交互逻辑已移到 `InteractionManager`，输入检测在 `XrInputDetector`，物体操作在 `ObjectIpulationProxy`。App 仅负责：
+- 依赖注入与生命周期管理
+- VR 会话启动/结束时创建/销毁会话期对象
 
 **资源初始化流程**：
 
 ```typescript
 async init(): Promise<void> {
-    // 1. 加载预置资源（GLB 模型、cubemap、材质）
+    // 1. 加载预置资源（GLB、cubemap、材质、纹理）
     await this.assetManager.loadInitAsset();
-    console.log(this.app.assets);  // 查看所有已加载资源
 
     // 2. 初始化场景
-    await this.scene.init();
+    this.scene.init();
 
-    // 3. 创建相机
-    this.createCamera();
+    // 3. 初始化字体
+    this.fontManager.init();
+
+    // 4. 创建 UI 模块
+    this.toolsWheel = new ToolsWheel(this.app);
+    this.voicePanel = new VoicePanel(this.app);
+    this.objectPanel = new ObjectPanel(this.app);
+
+    // 5. 初始化玩家控制器
+    this.playerController.init();
+
+    // 6. 注册 VR 事件
+    this.setupVrEvents();
 }
 ```
 
@@ -188,85 +202,74 @@ async init(): Promise<void> {
 ```typescript
 // VR 会话开始
 private onVrStart(): void {
-    // 创建 VR 控制器管理器
-    this.vrController = new VrController(this.app);
+    // 创建输入检测器、物体操作代理
+    this.xrInputDetector = new XrInputDetector(this.app);
+    this.objectProxy = new ObjectIpulationProxy(this.app);
 
-    // 创建 VR 语音面板
-    this.voicePanel = new VrVoicePanel(this.app, this.scene, {
-        onStartRecording: () => handler?.startRecording(),
-        onStopRecording: () => handler?.stopRecording(),
-        onClear: () => handler?.clearResults(),
-        onResult: (result) => console.log('识别结果:', result.text)
-    });
+    // 创建交互管理器（整合所有 VR 交互）
+    this.interaction = new InteractionManager(
+        this.app, this.playerController, this.objectProxy,
+        this.toolsWheel, this.voicePanel, this.objectPanel
+    );
+    this.interaction.init();
 
-    // 设置 Y 按钮回调（呼出语音面板）
-    this.vrController?.setYButtonCallback(() => {
-        this.voicePanel?.followTarget();
-    });
+    // 隐藏 DOM 按钮
+    vrBtn.style.display = 'none';
 }
 
 // VR 会话结束
 private onVrEnd(): void {
-    this.voicePanel?.destroy();
-    this.vrController?.destroy();
+    this.interaction?.destroy();
+    this.interaction = null;
+    // 显示 DOM 按钮
+    vrBtn.style.display = 'block';
+}
+
+// 每帧更新
+update(dt: number): void {
+    this.xrInputDetector?.update(dt);     // 输入检测
+    this.objectProxy?.update(dt);         // 物体操作
+    this.playerController.update(dt);     // 手柄追踪
 }
 ```
 
 ---
 
-### 3. AssetManager (app/asset-manager.ts)
+### 3. AssetManager (manager/assetLoader.ts)
 
 **职责**：
 - 集中管理所有预置资源的加载
-- 使用 `AssetListLoader` 异步加载 GLB 模型、cubemap、材质
+- 使用 `AssetListLoader` 异步加载 GLB 模型、cubemap、材质、UI 纹理
 - 提供统一的资源访问入口
 
 **预加载资源**：
 
 | 资源名 | 类型 | 文件路径 | 用途 |
 |--------|------|----------|------|
-| `leftController` | container | `assets/meta_quest_touch/left.glb` | 左手手柄 GLB 模型 |
-| `rightController` | container | `assets/meta_quest_touch/right.glb` | 右手手柄 GLB 模型 |
-| `skybox` | cubemap | `assets/cubemap/helipad-env-atlas.png` | 环境贴图 |
-| `metal` | material | `assets/materials/metal.json` | 金属材质 |
-
-**关键代码**：
-
-```typescript
-private createDefaultAssets(): void {
-    this.assets = [
-        new pc.Asset('leftController', 'container', { url: 'assets/meta_quest_touch/left.glb' }),
-        new pc.Asset('rightController', 'container', { url: 'assets/meta_quest_touch/right.glb' }),
-        new pc.Asset('skybox', 'cubemap', { url: 'assets/cubemap/helipad-env-atlas.png' }),
-        new pc.Asset('metal', 'material', { url: 'assets/materials/metal.json' })
-    ];
-}
-
-async loadInitAsset(): Promise<void> {
-    this.createDefaultAssets();
-    return new Promise((resolve, reject) => {
-        const loader = new pc.AssetListLoader(this.assets, this.app.assets);
-        loader.load((err: Error) => {
-            if (err) {
-                console.error('Asset加载失败:', err);
-                reject(err);
-                return;
-            }
-            resolve();
-        });
-    });
-}
-```
+| `leftController` | container | `assets/models/meta_quest_touch/left.glb` | 左手手柄 GLB 模型 |
+| `rightController` | container | `assets/models/meta_quest_touch/right.glb` | 右手手柄 GLB 模型 |
+| `cubemap:skybox` | cubemap | `assets/cubemap/helipad-env-atlas.png` | 天空盒环境贴图 |
+| `material:metal` | material | `assets/materials/metal.json` | 金属材质 |
+| `texture:toolsWheel` | texture | `assets/textures/tools_wheel.png` | 工具轮盘 UI |
+| `texture:wheel_Checkbox` | texture | `assets/textures/wheel_Checkbox.png` | 轮盘选中框 |
+| `texture:voice_panel` | texture | `assets/textures/voice_panel.png` | 语音面板背景 |
+| `texture:voice_button` | texture | `assets/textures/voice_button.png` | 语音面板按钮 |
+| `texture:voice_status_bar` | texture | `assets/textures/voice_status_bar.png` | 语音状态栏 |
+| `texture:voice_text_line` | texture | `assets/textures/voice_text_line.png` | 语音文本行 |
+| `texture:object_control_panel` | texture | `assets/textures/object_control_panel.png` | 物体操作面板 |
+| `texture:object_control_checkbox` | texture | `assets/textures/object_control_checkbox.png` | 操作选项框 |
+| `texture:green_triangle_identifier` | texture | `assets/textures/green_triangle_identifier.png` | 操作指示器 |
+| `text:fontSample` | text | `assets/font/3500_symbols.txt` | 中文字符集 |
 
 **资源访问**：
 
 ```typescript
-// 通过名称和类型查找资源
-const metalAsset = app.assets.find('metal', 'material') as pc.Asset;
-const material = metalAsset.resource as pc.StandardMaterial;
+// 通过名称和类型查找资源（新命名规范：type:name）
+const materialAsset = app.assets.find('material:metal') as pc.Asset;
+const cubemapAsset = app.assets.find('cubemap:skybox') as pc.Asset;
 
-// 通过名称查找（类型未知）
-const skyboxAsset = app.assets.find('skybox');
+// 通过类型筛选查找
+const texture = app.assets.find('texture:voice_panel')?.resource;
 ```
 
 ---
@@ -274,19 +277,19 @@ const skyboxAsset = app.assets.find('skybox');
 ### 4. Scene (app/scene.ts)
 
 **职责**：
-- 场景基础配置（环境光、背景色）
-- 管理地面、天空等实体
-- 提供实体添加/移除接口
+- 场景基础配置（环境光）
+- 管理 Ground、Sky 实体的生命周期
+- 通过配置控制地面/天空的启用
 
 **配置接口**：
 
 ```typescript
 interface SceneConfig {
-    backgroundColor: pc.Color;  // 背景颜色
-    showGrid: boolean;           // 是否显示网格
-    gridScale: number;           // 网格大小
-    ground?: GroundConfig;       // 地面配置
-    sky?: SkyConfig;             // 天空配置
+    backgroundColor: pc.Color;   // 背景颜色
+    showGrid: boolean;            // 是否显示网格
+    gridScale: number;            // 网格大小
+    ground?: GroundConfig;        // 地面配置
+    sky?: SkyConfig;              // 天空配置
 }
 ```
 
@@ -294,12 +297,9 @@ interface SceneConfig {
 
 | 方法 | 说明 |
 |------|------|
-| `addEntity(entity)` | 添加实体到场景 |
-| `removeEntity(entity)` | 移除并销毁实体 |
+| `init()` | 初始化场景（环境光、天空、地面） |
 | `getGround()` | 获取地面实体 |
 | `getSky()` | 获取天空实体 |
-| `getCamera()` | 获取相机实体 |
-| `setCamera(entity)` | 设置相机实体 |
 
 ---
 
@@ -308,207 +308,129 @@ interface SceneConfig {
 **职责**：
 - 配置场景天空盒
 - 设置曝光度和旋转
+- 通过 `app.assets.find('cubemap:skybox')` 查找天空盒资源
 
 **天空类型**：
 - `infinite` - 无限天空（程序化渐变）
 - `box` - 立方体天空盒
 - `dome` - 穹顶天空盒
 
-**关键代码**：
-
-```typescript
-// 构造函数中查找 skybox 资源
-this.skyboxAsset = this.app.assets.find('skybox');
-
-// 应用配置
-private apply(): void {
-    const { type, scale, centerHeight, exposure, rotation } = this.config;
-
-    // 设置天空类型
-    this.app.scene.sky.type = type;
-
-    // 设置天空盒缩放和中心
-    if (type !== 'infinite') {
-        this.app.scene.sky.node.setLocalScale(scale, scale, scale);
-        this.app.scene.sky.center = new pc.Vec3(0, centerHeight, 0);
-    }
-
-    // 设置 skybox 纹理（从 assets.find() 获取的资源）
-    if (this.skyboxAsset) {
-        this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
-    }
-
-    this.app.scene.skyboxMip = 3;  // 设置 mipmap 级别
-    this.app.scene.exposure = exposure;
-    this.app.scene.skyboxRotation = new pc.Quat().setFromEulerAngles(0, rotation, 0);
-}
-```
-
-**cubemap 资源访问**：
-
-> **重要**：cubemap 资源的纹理不在 `asset.resource` 中，而是在 `asset.resources[1]`
-
-```typescript
-// 检查资源结构
-console.log('skyboxAsset.resources:', this.skyboxAsset.resources);
-// 输出: (7) [null, Texture, null, null, null, null, null]
-// 纹理位于 resources[1]
-
-this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
-```
+**关键变更**（相比旧版）：
+- 使用 `app.scene.setSkybox(asset.resources)` 替代直接访问 `resources[1]`
+- 资源查找使用新的命名规范 `cubemap:skybox`
 
 ---
 
 ### 6. Ground (entities/ground.ts)
 
 **职责**：
-- 创建地面实体
-- 应用预置材质
+- 创建地面实体，使用 `material:metal` 预置材质
+- 作为平面渲染，接收阴影
 
-**关键代码**：
-
-```typescript
-constructor(app: pc.Application, config: GroundConfig = {}) {
-    const { size = 100, receiveShadows = true } = config;
-
-    // 从 AssetManager 加载的材质
-    const materialAsset = app.assets.find('metal', 'material') as pc.Asset;
-    this.material = materialAsset.resource as pc.StandardMaterial;
-
-    // 创建地面实体
-    this.entity = new pc.Entity('ground');
-    this.entity.setPosition(0, 0, 0);
-    this.entity.setLocalScale(size, 1, size);
-
-    // 添加渲染组件
-    this.entity.addComponent('render', {
-        type: 'plane',
-        material: this.material,
-        receiveShadows: receiveShadows,
-        layer: 'World'
-    });
-
-    app.root.addChild(this.entity);
-}
-```
+**关键变更**（相比旧版）：
+- 材质查找使用 `app.assets.find('material:metal')`
+- 移除了不必要的 `setPosition` / `setSize` 调用（初始化时已设置）
 
 ---
 
-### 7. FontManager (app/font-manager.ts)
+### 7. FontManager (manager/font.ts)
 
 **职责**：
-- 单例模式管理字体加载
-- 使用 FontFace API 加载 TTF/OTF 字体
-- 创建 PlayCanvas CanvasFont 供 UI 使用
+- 单例模式管理字体
+- 使用 PlayCanvas 内置 `CanvasFont` 创建字体纹理图集
 - 支持中文字符集（3500_symbols.txt）
+- 支持动态文本更新（`updateFontTextures`）
 
 **关键方法**：
 
 | 方法 | 说明 |
 |------|------|
 | `getInstance(app?)` | 获取单例实例 |
-| `loadFont(name, url)` | 异步加载字体 |
+| `init()` | 创建默认 CanvasFont（SimHei, 32px） |
 | `getFont(name)` | 获取已加载的字体 |
 | `updateFontTextures(name, text)` | 更新字体纹理图集 |
 
 **使用示例**：
 
 ```typescript
-// 初始化（首次获取时自动创建）
-const fontManager = FontManager.getInstance(app);
-
-// 加载字体
-await fontManager.loadFont('SimHei', 'assets/font/SimHei.ttf');
-
-// 获取字体用于 UI
+const fontManager = FontManager.getInstance();
+fontManager.init();  // 在 App.init() 中调用
 const font = fontManager.getFont('SimHei');
-
-// 更新纹理图集（显示新字符前必须调用）
 fontManager.updateFontTextures('SimHei', '你好世界');
 ```
 
-**已知问题与解决**：
+---
 
-| 问题 | 原因 | 解决方案 |
-|------|------|----------|
-| CanvasFont fontSize: NaN | 构造函数缺少 fontSize 参数 | 使用 `{ fontName: name, fontSize: 32 }` |
-| 汉字显示为方块 | 字体纹理图集不包含汉字 | 同时加载 3500_symbols.txt 字符集 |
+### 8. PlayerController (entities/playerController.ts)
+
+**职责**：
+- 管理玩家相机实体和 VR 手柄控制器实体
+- 每帧同步 XR 输入源的位置/旋转
+- 绘制手柄射线（白色=空闲，绿色=选择中）
+- 支持 `teleport:to` 事件实现传送
+
+**实体层级**：
+
+```
+app.root
+  └── PlayerOffset (可传送偏移)
+        ├── Camera (VR 相机)
+        ├── LeftController (左手柄 + GLB 模型)
+        └── RightController (右手柄 + GLB 模型)
+```
+
+**关键方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `init()` | 创建相机和手柄实体，加载 GLB 模型 |
+| `update(dt)` | 同步手柄位置/旋转，绘制射线 |
+| `getCamera()` | 获取相机实体 |
+| `getControllerEntity(handedness)` | 获取指定手的手柄实体 |
+
+**手柄模型加载**：
+
+```typescript
+left.addComponent('model', {
+    type: 'asset',
+    asset: (app.assets.find('leftController')?.resource as any).model,
+    castShadows: true
+});
+```
+
+> **设计说明**：旧版（controller.ts）需要手动处理 `handedness` 时序问题。新版在 `init()` 时直接创建 `'left'` / `'right'` 两个固定实体，在 `update()` 中从 `inputSources` 读取位置/旋转同步，避免了异步检测的复杂性。
 
 ---
 
-### 8. VrController (entities/controller.ts)
+### 9. XrInputDetector (app/xrInput-detector.ts)
 
 **职责**：
-- 追踪 VR 手柄控制器
-- 处理手柄输入（Y 切换面板、X 切旋转方向、Trigger 切换抓取、Grip 状态查询）
-- 实现抓取逻辑
-- GLB 模型加载与替换
-- 射线可视化
+- 检测 VR 手柄按钮按压和摇杆轴超过阈值
+- 通过 `app.fire(eventName, inputSource)` 发射事件
+- 使用 `preState` Map 实现边缘触发（仅按下瞬间触发一次）
 
-**关键设计 - PlayCanvas 官方推荐模式**：
+**检测的按钮事件**：
 
-> **重要**：不要在 `on('add')` 事件时检测 `inputSource.handedness`。此时 PlayCanvas 尚未同步 WebXR 数据，`handedness` 为 `undefined`。应在 `update()` 循环中检测。
+| 事件名 | 触发条件 |
+|--------|----------|
+| `left_trigger_click` | 左手扳机按下 |
+| `left_grip_click` | 左手握持按下 |
+| `left_x_click` | 左手 X 按钮按下 |
+| `left_y_click` | 左手 Y 按钮按下 |
+| `left_left_click` | 左手摇杆左超过阈值 |
+| `left_right_click` | 左手摇杆右超过阈值 |
+| `left_up_click` | 左手摇杆上超过阈值 |
+| `left_down_click` | 左手摇杆下超过阈值 |
+| `right_trigger_click` | 右手扳机按下 |
+| `right_grip_click` | 右手握持按下 |
+| `right_a_click` | 右手 A 按钮按下 |
+| `right_b_click` | 右手 B 按钮按下 |
+| `right_left_click` | 右手摇杆左超过阈值 |
+| `right_right_click` | 右手摇杆右超过阈值 |
+| `right_up_click` | 右手摇杆上超过阈值 |
+| `right_down_click` | 右手摇杆下超过阈值 |
 
-**按钮轮询回调**：
-
-| 按钮 | 回调 | 用途 |
-|------|------|------|
-| 左手 Y (index 5) | `setYButtonCallback(cb)` | 切换语音面板显示/隐藏 |
-| 左手 X (index 4) | `setXButtonCallback(cb)` | 切换模型旋转方向 |
-| 右手 Trigger (index 0) | `setRightTriggerToggleCallback(cb)` | 切换抓取状态（按下时触发一次） |
-| 任一手 Grip (index 1) | `isLeftGripHeld() / isRightGripHeld()` | App 每帧查询用于旋转 |
-
-**GLB 模型加载**：
-
-```typescript
-constructor(app: pc.Application) {
-    this.app = app;
-    this.leftModelAsset = this.app.assets.find('leftController');
-    this.rightModelAsset = this.app.assets.find('rightController');
-    this.setupControllers();
-}
-```
-
-**GLB 模型替换**：
-
-```typescript
-private SetupControllerModel(controller: ControllerInfo): void {
-    if (controller.modelAsset) return;
-
-    const handedness = controller.inputSource.handedness;
-    const modelAsset = handedness === 'left' ? this.leftModelAsset :
-                       handedness === 'right' ? this.rightModelAsset : null;
-    if (!modelAsset) return;
-
-    const containerResource = modelAsset.resource as any;
-    controller.entity.addComponent('model', {
-        type: 'asset',
-        asset: containerResource?.model,
-        castShadows: true
-    });
-
-    controller.modelAsset = modelAsset;
-}
-```
-
-**射线可视化**：
-
-```typescript
-drawInputSourceRays(): void {
-    if (!this.app.xr?.active) return;
-    for (const inputSource of this.app.xr.input.inputSources) {
-        if (inputSource.targetRayMode === pc.XRTARGETRAY_POINTER) {
-            const origin = inputSource.getOrigin();
-            const direction = inputSource.getDirection();
-            if (origin && direction) {
-                const endPoint = direction.clone().mulScalar(10).add(origin);
-                const color = inputSource.selecting ? pc.Color.GREEN : pc.Color.WHITE;
-                this.app.drawLine(origin, endPoint, color);
-            }
-        }
-    }
-}
-```
+**摇杆阈值**：`THRESHOLD = 0.8`，只有摇杆偏转超过 0.8 才触发。
 
 **Gamepad 按钮映射（Meta Quest）**：
 
@@ -516,259 +438,295 @@ drawInputSourceRays(): void {
 |------|------|------|
 | 0 | Trigger | Trigger |
 | 1 | Grip | Grip |
-| 2 |  |  |
-| 3 |  |  |
 | 4 | X | A |
 | 5 | Y | B |
-| 6 |  |  |
-
-**Trigger 模式说明**：右手 Trigger 使用 **toggle** 模式（按下时触发一次），不是按住模式。释放由 App 调用 `vrController.endGrab()` 处理。`updateGrabbing()` 中已移除 `!inputSource.selecting` 自动释放逻辑。
 
 ---
 
-### 9. VrVoicePanel (ui/vr-voice-panel.ts)
+### 10. ObjectIpulationProxy (app/objectIpulation-proxy.ts)
 
 **职责**：
-- 在 VR 空间内创建 3D world-space UI 面板
-- 提供语音输入控制按钮
-- 显示识别结果和状态
-- 跟随 VR 相机位置
-- **可见性切换**（默认隐藏，Y 按钮 toggle）
+- 桥接 InteractionManager 与具体物体操作
+- 持有一个 `FunctionCallback`，每帧将摇杆输入传递给回调
+- 作为物体操纵的"代理"，解耦输入检测与物体操作逻辑
 
-**可见性方法**：
+**关键方法**：
 
 | 方法 | 说明 |
 |------|------|
-| `toggleVisibility()` | 切换显示/隐藏，显示时刷新位置 |
-| `show()` | 显示（无操作若已可见） |
-| `hide()` | 隐藏（无操作若已隐藏） |
-| `isVisibleState()` | 获取当前可见性 |
+| `start(callback)` | 激活操作，传入操作回调 `(entity, stickX, stickY, handedness) => void` |
+| `stop()` | 停止操作，清除状态 |
+| `setObject(entity)` | 设置被操作的物体 |
+| `update(dt)` | 每帧读取摇杆值并执行回调 |
 
-**关键实现**：
-
-1. **默认隐藏**：构造函数中 `this.screenEntity.enabled = false`
-2. **World-space UI**：`screenSpace: false` 使 UI 存在于 3D 空间
-3. **LayoutGroup**：`orientation: VERTICAL/HORIZONTAL` 自动布局子元素
-4. **跟随相机**：
-   ```typescript
-   followTarget(): void {
-       const camera = this.scene.getCamera();
-       const camPos = camera.getPosition();
-       const forward = camera.forward;
-
-       // 放置在相机前方 1.2 米
-       const panelPos = new pc.Vec3().copy(camPos).add(forward.mulScalar(1.2));
-       this.screenEntity.setPosition(panelPos);
-       this.screenEntity.lookAt(camPos);
-       this.screenEntity.rotateLocal(-7.5, 180, 0);
-   }
-   ```
-
----
-
-### 10. 通用 VR 交互（src/interaction/）
-
-**目标**：把抓取/移动/旋转的逻辑从 `App` 类中抽出，拆成职责单一的多个类，让 App 保持薄。
-
-**模块组成**：
-
-| 类 | 职责 |
-|------|------|
-| `Grabbable` | 给实体打 `'grabbable'` 标签并注册到 Registry |
-| `GrabbableRegistry` | 管理所有可抓取实体；提供 `pick(ray)` 按 AABB 拾取 |
-| `XRPicker` | 监听 `app.xr.input.on('select', ...)`，对右手射线做命中测试 |
-| `Manipulator` | 抓取/释放 + 每帧应用摇杆旋转 |
-| `InteractionManager` | 组合 Registry/Picker/Manipulator；提供 toggle 抓取语义 |
-
-**完整流程**：
-
-```
-右手扳机射线指向 Grabbable 实体
-    ↓ XRPicker (select 事件)
-ray.set(getOrigin(), getDirection())
-    ↓ GrabbableRegistry.pick()
-遍历 grabbable 列表 → 找最近 ray-AABB 命中
-    ↓ onPicked 回调
-InteractionManager: 已抓取同物体？→ 释放；否则释放旧的 + 抓取新的
-    ↓ Manipulator.startHold()
-controller.entity.addChildAndSaveTransform(target)  // reparent
-    ↓ 每帧
-Grip 按下 + 摇杆方向 → Manipulator.update() 累积旋转
-```
-
-#### 关键 API（PlayCanvas 内置）
-
-| 需求 | 方案 |
-|------|------|
-| 射线拾取 | `app.xr.input.on('select', cb)` |
-| AABB 测试 | `meshInstance.aabb.intersectsRay(ray)` |
-| 标签筛选 | `entity.tags.add('grabbable')` + `findByTag` |
-| 跟随手柄 | `addChildAndSaveTransform`（保留世界变换） |
-| 旋转 | `Quat.setFromAxisAngle(axis, angle)` + `Quat.mul2` |
-| 摇杆读取 | `inputSource.gamepad.axes[2]` (X) / `[3]` (Y) |
-
-#### 为什么用 reparent 而不是 offset 跟随
-
-- **reparent 模式**：`controller.entity.addChildAndSaveTransform(target)`，物体成为 controller 实体子节点，PlayCanvas 每帧自动同步世界变换。无需手动算 offset，对相机/控制器延迟更鲁棒。
-- **offset 模式**（旧实现）：手动 `setPosition(gripPose + grabOffset)`，依赖每帧最新的 `getPosition()`，对抖动/延迟敏感。
-
-#### 旋转输入映射
-
-- 任一手 **Grip 按下** → 进入旋转模式
-- 右手摇杆方向（`axes[2/3]`）决定：
-  - `|x| > |y|` → 绕 **Y 轴** 旋转（量 = x）
-  - `|y| > |x|` → 绕 **X 轴** 旋转（量 = y）
-  - 死区 0.3
-- Z 轴旋转可由左手 X 按钮叠加（未来扩展）
-
-#### Grabbable 标签使用
-
-在创建可抓取实体的位置（如 `SplatLoader.load()`）调用 `entity.tags.add('grabbable')`。`XRPicker` 只会命中带此标签的实体。
-
-#### 类签名速查
-
-```ts
-// Grabbable
-class Grabbable {
-    constructor(entity: pc.Entity, registry: GrabbableRegistry);
-    destroy(registry: GrabbableRegistry): void;
-}
-
-// GrabbableRegistry
-class GrabbableRegistry {
-    register(g: Grabbable): void;
-    unregister(g: Grabbable): void;
-    pick(ray: pc.Ray): Grabbable | null;
-}
-
-// XRPicker
-class XRPicker {
-    constructor(app, registry: GrabbableRegistry, onPicked: (g, src) => void);
-    destroy(): void;
-}
-
-// Manipulator
-class Manipulator {
-    startHold(g: Grabbable, inputSource: pc.XrInputSource): void;
-    endHold(): void;
-    isHolding(g?: Grabbable): boolean;
-    update(dt: number): void;
-}
-
-// InteractionManager
-class InteractionManager {
-    readonly registry: GrabbableRegistry;
-    readonly manipulator: Manipulator;
-    update(dt: number): void;
-    destroy(): void;
-}
-```
-
-#### 在 App 中集成
-
-```ts
-// onVrStart():
-this.vrController = new VrController(this.app);
-this.interaction = new InteractionManager(this.app, this.vrController);
-
-// update(dt):
-this.vrController?.update(dt);
-this.interaction?.update(dt);
-this.scene.update(dt);
-
-// onVrEnd():
-this.interaction?.destroy();
-this.interaction = null;
-```
-
-**App 类不再持有**：grab/rotate 状态、`loadModelInFrontOfCamera` 的 grab 清理、`applyRotationIfGripHeld`、Trigger 回调。
-
----
-
-### 11. 3D 模型加载（语音触发）
-
-**职责**：语音面板 send 触发 `App.loadModelInFrontOfCamera()`，将 `/avocado_chair.ply` 加载到相机前方 1.5m（y -= 0.2）处，加载后自动打 `'grabbable'` 标签（由 `SplatLoader` 完成），即可被 `XRPicker` 拾取。
-
-**App 中的实现**（简化版）：
+**操作回调注册（在 InteractionManager 中）**：
 
 ```typescript
-private async loadModelInFrontOfCamera(): Promise<void> {
-    const camera = this.scene.getCamera();
-    if (!camera) return;
-
-    const camPos = camera.getPosition();
-    const forward = camera.forward;
-    const pos = new pc.Vec3().copy(camPos).add(forward.mulScalar(this.MODEL_DISTANCE));
-    pos.y -= 0.2;
-
-    if (!this.splatLoader) this.splatLoader = new SplatLoader(this.app);
-
-    // 销毁旧模型前先释放正在抓取的物体
-    if (this.splatLoader.getEntity()) {
-        this.interaction?.manipulator.endHold();
-        this.splatLoader.destroy();
-    }
-
-    try {
-        await this.splatLoader.load({
-            url: this.DEFAULT_MODEL_URL,  // '/avocado_chair.ply'
-            position: pos,
-            scale: new pc.Vec3(1, 1, 1)
-        });
-        // SplatLoader 内部已 addTag('grabbable')
-        this.voicePanel?.setStatus('State: Model loaded');
-    } catch (e) {
-        console.error('模型加载失败:', e);
-        this.voicePanel?.setStatus('State: Load failed');
-    }
-}
-```
-
-**注意**：App 不再持有 grab/rotate 状态；这些状态全部由 `Manipulator` 管理。
-
-**完整交互流程**：
-
-```
-[VR 中]
-  ↓ Y 按钮
-显示/隐藏语音面板
-  ↓ start → 录音 → stop → send
-加载 /avocado_chair.ply 到相机前方 1.5m
-  ↓ 右手扳机射线指向物体，按 Trigger
-XRPicker 选中 → InteractionManager.toggleHold
-  ↓ 物体被 reparent 到 controller 实体下
-物体跟随右手移动
-  ↓ 按住任一手 Grip + 推右手摇杆
-Manipulator.update() 累积旋转
-  ↓ 摇杆左右 → 绕 Y 轴；上下 → 绕 X 轴
-旋转物体
-  ↓ 再次按 Trigger 选中同一物体
-释放物体 → 还原到原父节点
+const callbackFn = new Map<number, FunctionCallback>([
+    [0, (entity, stickX, stickY, handedness) => { /* 移动 */ }],
+    [1, (entity, stickX, stickY, handedness) => { /* 旋转 */ }],
+    [2, (entity, stickX, stickY, handedness) => { /* 缩放 */ }],
+]);
 ```
 
 ---
 
-### 11. ASR 模块 (asr/)
+### 11. InteractionManager (manager/interaction.ts)
 
-**架构**：
-- `asr-handler.ts` - 父页面模块，与 iframe 通信
-- `core.html` - 轻量级 ASR iframe，仅 API 无 UI
+**职责**：
+- **VR 交互状态机**：管理整个 VR 会话的交互流程
+- 协调 ToolsWheel、VoicePanel、ObjectPanel 三个 UI 模块
+- 处理物体拾取/释放（射线 AABB 检测）
+- 注册所有按钮事件的响应回调
 
-**core.html 特点**：
-- 移除所有 UI 元素和 console.log
-- 移除 LightweightOptimizer（避免内存警告）
-- 仅处理 postMessage 命令
-- 支持 start/stop/clear/switch_engine 命令
+**交互状态机**：
 
-**父页面与 iframe 通信**：
+```
+idle  ←→  wheelOpen  ←→  voicePanelOpen  ←→  objectPanelOpen
+                            ↓ A                ↓ A
+                         录音/发送          objectManipulating
+                                               ↓ Trigger
+                                           objectSelecting
+                                               ↓ Trigger
+                                           objectManipulating
+```
+
+**状态说明**：
+
+| 状态 | 说明 |
+|------|------|
+| `idle` | 默认状态，无 UI 打开 |
+| `wheelOpen` | 工具轮盘显示中，左摇杆左右切换工具 |
+| `voicePanelOpen` | 语音面板显示中，可录音/发送 |
+| `objectPanelOpen` | 物体操作面板显示中，可选择操作类型 |
+| `objectManipulating` | 物体操纵模式，摇杆控制 Transform |
+| `objectSelecting` | 物体已拾取，处于 Reparent 抓取状态 |
+
+**关键流程**：
+
+```
+[左手 Y] → toggle 工具轮盘 → idle ↔ wheelOpen
+  [摇杆左/右] → spinning_wheel(-1/1) 切换工具
+  [右手 A] → 确认:
+    tool 0 → 打开语音面板 (voicePanelOpen)
+    tool 1 → 打开物体操作面板 (objectPanelOpen)
+    tool 2 → 定向移动 (TODO)
+
+语音面板 (voicePanelOpen):
+  [右手 B] → 关闭面板 → idle
+  [start/stop/clear/send 按钮] → XR 射线点击
+
+物体操作面板 (objectPanelOpen):
+  [左摇杆 左/右] → 切换操作类型
+  [右手 A] → 开始操纵 (objectManipulating)
+  [右手 B] → 关闭面板 → idle
+
+物体操纵 (objectManipulating):
+  [右手 Trigger] → 射线拾取物体 → reparent → objectSelecting
+  摇杆 → ObjectIpulationProxy 执行操作
+  [右手 B] → 停止操纵 → objectPanelOpen
+
+物体已拾取 (objectSelecting):
+  [右手 Trigger] → 释放物体 → 还原到 world → objectManipulating
+```
+
+**EntityPositionInit**：在 VR 启动时，将各 UI 面板关联到对应的实体上：
+- **ToolsWheel** → 左手柄子节点（位置：前方 -0.1）
+- **VoicePanel** → 相机子节点（位置：右前方 0.6, -0.2, -1）
+- **ObjectPanel** → 相机子节点（位置：正前方偏下 0, -0.3, -0.4）
+- **gamepaidentifier** → 右手柄子节点（操纵模式指示器）
+
+---
+
+### 12. VoicePanel (ui/voice-panel.ts)
+
+**职责**：
+- 在 VR 空间内创建 world-space 3D 语音控制面板
+- 提供开始录音/停止/清除/发送按钮
+- 显示识别结果和状态文本
+- 通过 `app.fire('voice:*')` 事件与 ASRHandler 通信
+
+**关键方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `getScreenEntity()` | 获取屏幕实体（用于挂载到控制器/相机） |
+| `changeScreenEnable()` | 切换显示/隐藏 |
+| `setStatus(status)` | 设置状态文本 |
+| `appendResultText(text)` | 追加识别结果 |
+| `destroy()` | 销毁面板 |
+
+**面板尺寸**：300×200 UI 像素，世界缩放 0.003
+
+---
+
+### 13. ToolsWheel (ui/tools-wheel.ts)
+
+**职责**：
+- VR 世界空间工具选择轮盘
+- 显示三个工具选项：语音输入 / 物体控制 / 定向移动
+- 摇杆旋转轮盘，选中项高亮
+
+**关键方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `spinning_wheel(order)` | 旋转轮盘（-1 左, 1 右），步进 60° |
+| `updateCurrentTool()` | 确认当前选中工具 |
+| `getScreenEntity()` | 获取屏幕实体 |
+| `changeScreenEnable()` | 切换显示/隐藏 |
+
+**当前工具列表**：`['语音输入', '物体控制', '定向移动']`
+
+**UI 组成**：
+- `wheel` 实体（背景轮盘图片，旋转动画）
+- `toolsname` 实体（当前工具名称文本）
+- `checkbox` 实体（选中指示框）
+
+---
+
+### 14. ObjectPanel (ui/object-panel.ts)
+
+**职责**：
+- VR 世界空间物体操作面板
+- 显示操作类型：移动 / 旋转 / 缩放 / 组合 / 复制 / 删除
+- 选中框在操作类型之间循环移动
+
+**关键方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `nextOperation(order)` | 循环切换操作类型 |
+| `updatecurrentOperation()` | 确认当前操作类型 |
+| `getScreenEntity()` | 获取屏幕实体 |
+| `changeScreenEnable()` | 切换显示/隐藏 |
+
+**当前操作列表**：`['移动', '旋转', '缩放', '组合', '复制', '删除']`
+
+> **注意**：目前仅实现了移动(0)、旋转(1)、缩放(2)，组合/复制/删除为占位。
+
+---
+
+### 15. ElementContainer (entities/elementContainer.ts)
+
+**职责**：
+- 包装可交互的 3D 元素（如加载的 GS 模型）
+- 提供包围盒（Wireframe Box）可视化
+- 管理元素在世界中的位置（reparent 到 world / 控制器）
+- 通过 `'ElementContainer'` 标签供射线检测筛选
+
+**关键方法**：
+
+| 静态/实例方法 | 说明 |
+|------|------|
+| `ElementContainer.createElement(app)` | 创建新的容器（添加包围盒子实体） |
+| `ElementContainer.createElementByEntity(entity)` | 从已有实体创建容器包装器 |
+| `addElement(element)` | 向容器添加元素（如 GS 模型实体） |
+| `addworld(app)` | 将容器放回 world 根节点 |
+| `showBoundbox(flag)` | 显示/隐藏包围盒 |
+| `setSelected(flag)` | 设置选中标签 |
+
+**包围盒**：使用 `StandardMaterial` + `RENDERSTYLE_WIREFRAME` 渲染 wireframe box，自动匹配 AABB 尺寸。
+
+---
+
+### 16. ASR 模块
+
+#### ASRHandler (app/asr-handler.ts)
+
+**职责**：
+- 管理 ASR iframe 的加载和通信
+- 通过 `postMessage` 与 iframe 交换命令和数据
+- 将 ASR 事件转换为 PlayCanvas 应用事件
+
+**事件通信**：
+
+```
+Host (PlayCanvas App)                iframe (ASR)
+────────────────────                 ────────────
+voice:startRecording  ──→ start ──→ 开始录音
+voice:stopRecording   ──→ stop  ──→ 停止录音
+voice:clearResults    ──→ clear ──→ 清除结果
+voice:sendResult      ──→ 处理识别结果
+
+                      ←── asr_result ──  识别结果
+                      ←── asr_status ──  状态更新
+                      ←── asr_error  ──  错误信息
+```
+
+**关键方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `init(iframeSrc)` | 创建隐藏 iframe 并加载 ASR 页面 |
+| `sendCommand(command)` | 发送命令到 iframe |
+| `switchEngine(engine)` | 切换 ASR 引擎 |
+| `destroy()` | 销毁 iframe |
+
+#### ASR iframe 模块 (asr/)
+
+- **asr-manager.js** — 多引擎管理器
+- **sherpa-asr-engine.js** — Sherpa-ONNX 离线引擎（WASM，无需网络）
+- **funasr-engine.js** — FunASR 服务器引擎（需后端服务）
+- **webspeech-engine.js** — 浏览器内置语音识别
+- **recorder-core.js** — 录音核心逻辑
+- **wsconnecter.js** — WebSocket 连接器
+
+---
+
+### 17. 3D 模型加载（语音触发）
+
+**职责**：语音面板 send 触发 `voice:sendResult` 事件 → InteractionManager 处理：
 
 ```typescript
-// asr-handler.ts 发送命令
-iframe.contentWindow.postMessage({
-    type: 'vr_command',
-    command: 'start'
-}, '*');
+this.app.on('voice:sendResult', async (_text: string) => {
+    // 使用 loadSplat 加载 PLY 点云 → 包装进 ElementContainer → 放置到相机前方
+    const entity = await loadSplat(this.app, '/avocado_chair.ply');
+    const container = ElementContainer.createElement(this.app);
+    container.addElement(entity);
+
+    const camera = this.playerController.getCamera();
+    const position = camera.getPosition().clone()
+        .add(camera.forward.clone().mulScalar(1));
+    container.setPosition(position);
+});
 ```
+
+**`loadSplat` 工具函数**（utils.ts）：
+
+```typescript
+async function loadSplat(app: pc.Application, url: string): Promise<pc.Entity> {
+    const asset = new pc.Asset('splat-' + Date.now(), 'gsplat', { url });
+    // AssetListLoader 加载 → 创建 Entity → 添加 gsplat 组件
+    entity.addComponent('gsplat', { asset, unified: true });
+}
+```
+
+---
+
+### 18. 物体操纵详情
+
+**操作回调映射**（在 InteractionManager 中定义）：
+
+```typescript
+const callbackFn = new Map<number, FunctionCallback>([
+    [0, 移动], // entity, stick_X, stick_Y, handedness
+    [1, 旋转], // entity, stick_X, stick_Y, handedness
+    [2, 缩放], // entity, stick_X, stick_Y, handedness
+]);
+```
+
+**移动（操作 0）**：
+- 左手：摇杆 Y → 上下移动
+- 右手：摇杆 X → 左右移动，Y → 前后移动
+
+**旋转（操作 1）**：
+- 左手：摇杆 X → 绕 Z 轴
+- 右手：摇杆 X → 绕 Y 轴，Y → 绕 X 轴
+- 三轴旋转通过 `Quat.mul2` 组合
+
+**缩放（操作 2）**：
+- 右手：摇杆 Y → 等比缩放（限制 0.1~5 倍）
 
 ---
 
@@ -797,251 +755,181 @@ const app = new Application(canvas, {
 });
 ```
 
-### XR 输入源时序问题
+### World-Space UI 配置
 
-**问题**：`XrInputSource.handedness` 在 `input.on('add')` 事件触发时为 `undefined`
-
-**原因**：PlayCanvas 的 XrInputSource 包装了 WebXR 输入源，但在 'add' 事件触发时，底层属性尚未同步
-
-**解决方案**：在 `update()` 循环中检测 handedness
+创建 3D 空间中的 UI 面板需要三个关键设置：
 
 ```typescript
-// 使用 needsAssignment 标志位
-if (controller.needsAssignment && inputSource.handedness) {
-    if (inputSource.handedness === 'right') {
-        this.rightController = controller;
-    } else if (inputSource.handedness === 'left') {
-        this.leftController = controller;
-    }
-    controller.needsAssignment = false;
-}
+screenEntity.addComponent('screen', {
+    screenSpace: false  // 关键：禁用屏幕空间，启用 world-space
+});
+screenEntity.setLocalScale(0.003, 0.003, 1);  // 缩放到合适大小
 ```
 
 ### Cubemap 资源访问
 
-**问题**：cubemap 纹理资源不在 `asset.resource` 中
-
-**解决**：访问 `asset.resources[1]`
+新版使用 `scene.setSkybox()`：
 
 ```typescript
-// skyboxAsset 结构
-skyboxAsset.resources: (7) [null, Texture, null, null, null, null, null]
-//                                              ↑
-//                                         resources[1]
-
-this.app.scene.skybox = this.skyboxAsset.resources[1] as pc.Texture;
+const skyboxAsset = app.assets.find('cubemap:skybox');
+if (skyboxAsset) {
+    app.scene.setSkybox(skyboxAsset.resources as pc.Texture[]);
+}
+app.scene.skyboxMip = 3;
 ```
 
-### 环境反射材质限制
+### Gaussian Splatting (gsplat 组件)
 
-**已知限制**：PNG 格式的 cubemap atlas 无法用于材质的环境反射
+```typescript
+entity.addComponent('gsplat', {
+    asset: splatAsset,
+    unified: true  // 启用统一渲染
+});
+```
 
-**原因**：PNG 作为 2D 纹理加载时，`_cubemap` 属性为 `false`，`useSkybox` 无法生效
+**AABB 访问**：
 
-**现象**：
-- `scene.skybox` 正确设置并显示
-- `material.useSkybox` 为 `true`
-- `material.envTex` 为 `undefined`
-- 金属材质无环境反射效果
+```typescript
+if (entity.gsplat) {
+    const resource = (entity.gsplat as any).resource;
+    const localAabb: pc.BoundingBox | undefined = resource?.aabb;
+    if (localAabb) {
+        const worldAabb = new pc.BoundingBox();
+        worldAabb.setFromTransformedAabb(localAabb, entity.getWorldTransform());
+    }
+}
+```
 
-**解决方案**：
-1. 使用 `.dds` 格式的 cubemap 文件（完整 cubemap 数据）
-2. 或降低材质的 `reflectivity`，使用高 `shininess` + `specular` 颜色代替
+### XR Input 事件 vs Gamepad 轮询
+
+新架构采用 **事件驱动** 模式（XrInputDetector 每帧检测 + `app.fire` 发射事件），而非直接在 App 中轮询 gamepad：
+
+```typescript
+// 旧：App 内直接轮询
+if (gamepad.buttons[5].pressed) { /* Y button */ }
+
+// 新：监听事件
+this.app.on('left_y_click', () => { /* Y button */ });
+```
 
 ---
 
 ## 问题排查
 
-### Q: 材质 useSkybox 不生效
+### Q: VR 手柄无响应
 
 **检查**：
-1. `scene.skybox` 是否正确设置（控制台查看）
-2. 材质是否加载自 metal.json
-3. 是否为 PNG cubemap atlas（PNG 无法用于环境反射）
-
-**临时解决**：降低 `reflectivity`，增加 `shininess`
-
-### Q: Y 按钮无响应
-
-**检查**：
-1. `onVrStart()` 中是否调用了 `vrController.setYButtonCallback()`
-2. 模拟器/手柄是否正确映射了 Y 按钮（索引 5）
-3. `leftController` 是否为 null
+1. `XrInputDetector` 的 `update()` 是否在 App.update 中被调用
+2. `InteractionManager.init()` 是否注册了对应按钮事件
+3. 事件名是否正确（如 `left_y_click`）
 
 ### Q: 语音面板不显示
 
 **检查**：
 1. `ElementInput` 是否在 Application 创建时启用
-2. UI 元素是否在正确的 Layer（UI Layer）
-3. `followTarget()` 是否被调用
-4. 面板缩放是否合适（`setLocalScale(0.005, 0.005, 1)`）
+2. `screenEntity.enabled` 是否为 `true`（通过 `changeScreenEnable()` 切换）
+3. 面板缩放是否合适（`setLocalScale(0.003, 0.003, 1)`）
 
-### Q: 控制器不显示
+### Q: 工具轮盘无法旋转
 
 **检查**：
-1. `VrController` 是否在 `onVrStart()` 中正确创建
-2. `update()` 是否被调用
-3. GLB 模型是否正确加载（AssetManager）
+1. 当前状态是否为 `wheelOpen`
+2. `spinning_wheel` 的方向参数是否正确（1 = 右, -1 = 左）
+3. 轮盘旋转角度是否在 -90°~90° 范围内
+
+### Q: 物体操作无响应
+
+**检查**：
+1. 当前状态是否为 `objectManipulating`
+2. `ObjectIpulationProxy.start()` 是否传入正确的 callback
+3. 右手 Trigger 是否成功拾取到物体（射线是否命中 ElementContainer）
+
+### Q: 手柄模型不显示
+
+**检查**：
+1. `PlayerController.init()` 中 GLB 模型是否正确加载
+2. 资源 key 是否为 `leftController` / `rightController`
+3. `AssetManager.loadInitAsset()` 是否在 PlayerController 之前完成
 
 ---
 
 ## 更新日志
 
-### 2026-05-23
+### 2026-07-26
 
-**AssetManager 资源集中管理**：
+**架构重构 — 目录重组与新模块**
 
-- 新增 `src/app/asset-manager.ts`
-- 使用 `AssetListLoader` 异步加载 GLB、cubemap、材质资源
-- 统一管理 `leftController`、`rightController`、`skybox`、`metal` 资源
+**目录重组**：
+- 新建 `src/manager/` 目录（vr-manager, assetLoader, font, interaction）
+- 各实体移至 `src/entities/`
+- UI 组件移至 `src/ui/`
+- 在 `src/app.ts` 顶层统一导出 App 类
 
-**Sky 类重构**：
-- 通过 `this.app.assets.find('skybox')` 查找 skybox 资源
-- 通过 `asset.resources[1]` 访问 cubemap 纹理
-- 设置 `skyboxMip = 3` 控制 mipmap 级别
-
-**Ground 材质应用**：
-- 使用 AssetManager 预加载的 `metal` 材质
-- 通过 `app.assets.find('metal', 'material')` 获取材质资源
-
-**已知问题**：
-- PNG cubemap atlas 无法用于材质环境反射
-- `material.envTex` 为 `undefined`
-- 金属材质 `useSkybox` 属性不生效
-
-### 2026-07-10
-
-**架构重构 — VR 通用交互模块 (`src/interaction/`)**
-
-**问题**：之前的实现把加载模型、切换抓取、3 轴 tumble 旋转、清理状态全部堆在 `App` 类中，超过 380 行；`applyRotationIfGripHeld` 把 X/Y/Z 同时累加（实际是 tumble 而非真正的"绕 X/Y/Z 轴独立旋转"）。
-
-**新模块**：
+**新增模块**：
 
 | 文件 | 职责 |
 |------|------|
-| `interaction/grabbable.ts` | 实体打 `grabbable` 标签 + 注册到 Registry |
-| `interaction/grabbable-registry.ts` | 管理可抓取表；`pick(ray)` 按 AABB 拾取 |
-| `interaction/xr-picker.ts` | 监听 `app.xr.input.on('select', ...)`，对右手射线做命中测试 |
-| `interaction/manipulator.ts` | 抓取/释放 + 每帧应用摇杆旋转 |
-| `interaction/interaction-manager.ts` | 顶层协调（toggle 抓取语义） |
+| `app/xrInput-detector.ts` | XR 输入手势检测器，按钮/摇杆事件发射 |
+| `app/objectIpulation-proxy.ts` | 物体操作代理，解耦输入与操作逻辑 |
+| `entities/playerController.ts` | 玩家相机 + VR 手柄模型管理 |
+| `entities/cube.ts` | 测试用立方体实体 |
+| `entities/elementContainer.ts` | 可交互 3D 元素包装器 |
+| `ui/tools-wheel.ts` | 工具选择轮盘（语音/物体控制/移动） |
+| `ui/object-panel.ts` | 物体操作面板（移动/旋转/缩放） |
+| `app/api.ts` | Axios 基础配置 |
 
-**PlayCanvas 内置 API 使用**：
-- `app.xr.input.on('select', cb)` 替代 gamepad 轮询
-- `entity.tags.add('grabbable')` + `findByTag` 标签系统
-- `addChildAndSaveTransform` 替代手动算 offset 跟随
-- `Quat.setFromAxisAngle` + `mul2` 累积旋转
-- `meshInstance.aabb.intersectsRay(ray)` 射线-AABB 测试
+**移除模块**：
+- 删除 `src/interaction/` 目录（grabbable, grabbable-registry, xr-picker, manipulator, interaction-manager）
+- 相关逻辑合并到 `manager/interaction.ts`（InteractionManager 状态机）
 
-**抓取流程变更**：
-- 旧：Trigger toggle → 切换 `isGrabbing` 状态，offset 跟随
-- 新：扳机射线指向 → XRPicker 拾取 → Manipulator.startHold → reparent 到 controller 实体下（自动跟随）→ 再次扳机释放
+**旧类废弃**：
+- `entities/controller.ts`（VrController） → 被 `PlayerController` + `XrInputDetector` 取代
+- `ui/vr-button.ts` → 被 `ui/start-page.ts` 取代
+- `ui/vr-voice-panel.ts` → 重构为 `ui/voice-panel.ts`
 
-**旋转输入变更**：
-- 旧：摇杆 Y 主导选 X 轴 + 摇杆 X 主导选 Y 轴
-- 新：Grip 按下 + 右手摇杆 → 摇杆左右 → 绕 Y 轴；摇杆上下 → 绕 X 轴
-- 死区 0.3，旋转量 = 摇杆偏转 × ROTATION_SPEED × dt
-
-**App 类瘦身**：
-- 不再持有 `currentSplatEntity`、`isGrabbing`、`rotationDirection`、`currentRotationX/Y/Z` 状态
-- 不再有 `applyRotationIfGripHeld`、`toggleGrab`
-- 不再有 Trigger 切换抓取回调
-- 仅剩：资源加载、VR 生命周期、语音面板、调用 `loadModelInFrontOfCamera()`、集成 `InteractionManager`
-
-**SplatLoader 变更**：
-- 加载成功后 `entity.tags.add('grabbable')`，自动加入可抓取列表
-- 销毁时无需手动注销（实体销毁即移除）
-
-**VrController 变更**：
-- 新增 `findByInputSource(inputSource)` 公共方法
-- 保留所有现有 polling 回调（Y/X/Trigger/Grip 状态）供 Manipulator 使用
-- 删除 `updateGrabbing` 的 auto-release on `!selecting`（由 Manipulator.toggleHold 接管）
+**架构变更**：
+- 交互从 `Grabbable/Manipulator` 模式切换为 **状态机 + 事件驱动** 模式
+- 按钮/摇杆处理从直接 gamepad 轮询切换为 **XrInputDetector 事件发射**
+- 物体操作从 reparent-to-controller 模式扩展为 **ObjectIpulationProxy 通用操作代理**
+- UI 面板挂载方式：ToolsWheel → 左手柄子节点，VoicePanel/ObjectPanel → 相机子节点
+- 资源命名规范变更：`texture:name` / `cubemap:name` / `material:name` 等带有类型前缀的命名
 
 ### 2026-07-02
 
 **VR 语音面板可见性切换**：
-- `VrVoicePanel` 默认隐藏（`screenEntity.enabled = false`）
-- 新增 `toggleVisibility()` / `show()` / `hide()` / `isVisibleState()` 方法
-- Y 按钮改为切换显示/隐藏（显示时刷新位置）
+- `VoicePanel` 默认隐藏（`screenEntity.enabled = false`）
+- Y 按钮改为打开工具轮盘，通过轮盘选择语音输入
+- 新增 `changeScreenEnable()` / `isScreenEnable()` 方法
 
 **3D 点云模型动态加载**：
-- 语音面板 send 按钮触发 `App.loadModelInFrontOfCamera()`
-- 加载 `/avocado_chair.ply` 到相机前方 1.5m 处（y -= 0.2 略低于视线）
-- scale `(1, 1, 1)`，姿态：`setLocalEulerAngles(0, currentRotationY, 0)`
-- 加载失败时 `voicePanel.setStatus('State: Load failed')`
+- 语音面板 send 按钮触发 `voice:sendResult` 事件
+- `loadSplat()` 加载 `.ply` 点云文件
+- 加载后包装为 `ElementContainer`，放置到相机前方
 
-**右手 Trigger 切换抓取（toggle 模式）**：
-- `VrController` 新增 `setRightTriggerToggleCallback`，按下时触发一次
-- `App.toggleGrab()` 切换 `isGrabbing` 状态，调用 `startGrab` / `endGrab`
-- 抓取状态下模型跟随右手移动
-- `updateGrabbing()` 移除自动释放逻辑（不再依赖 `selecting` 事件）
+**物体操控**：
+- 移动 / 旋转 / 缩放三模式切换
+- 左右手柄独立摇杆映射
 
-**旋转控制（仅抓取时生效）**：
-- 左手 X 按钮：`App.rotationDirection *= -1`，console 输出当前方向（CCW/CW）
-- 任一手 Grip 按下：`App.applyRotationIfGripHeld()` 每帧累加 `currentRotationX/Y/Z`
-- 旋转轴：模型自身 **X、Y、Z 三轴同时**（每次累加相同的 delta）
-- API：`setLocalEulerAngles(rx, ry, rz)`
-- 速度：`ROTATION_SPEED = 2.5` rad/s
+### 2026-05-23
 
-**清理逻辑**：
-- `App.onVrEnd()` 销毁模型并重置状态（`isGrabbing`、`rotationDirection`、`currentRotationY`）
-- `loadModelInFrontOfCamera()` 销毁旧模型前先 `endGrab`，避免目标失效
-- `main.ts` 移除启动时的 `setTimeout` 加载测试
+**AssetManager 资源集中管理**：
+- 使用 `AssetListLoader` 异步加载 GLB、cubemap、材质、纹理资源
 
-**VrController 新增公共接口**：
-- `setXButtonCallback(cb)` - 左手 X 按钮按下回调
-- `setRightTriggerToggleCallback(cb)` - 右手 Trigger 切换回调
-- `isLeftGripHeld()` / `isRightGripHeld()` - Grip 按住状态查询
+**Sky 类重构**：
+- 使用 `scene.setSkybox()` 设置天空盒
 
 ### 2026-05-21
 
-**VR 手柄 GLB 模型替换**：
-- 新增 GLB 模型预加载机制（`loadControllerModels()`）
-- 使用 `AssetListLoader` 异步加载 `left.glb` / `right.glb`
-- 在 `update()` 中检测模型加载状态，将 box 替换为 GLB 模型
-- `ControllerInfo` 接口添加 `modelAsset` 字段
-
-**射线可视化**：
-- `VrController.drawInputSourceRays()` 每帧绘制 XR 输入源射线
-- 射线方向：`inputSource.getOrigin()` + `inputSource.getDirection()`
-- 按下扳机时射线为绿色，否则为白色
-- 使用 `app.drawLine()` 绘制调试线段
-
-**射线-按钮交互**：
-- PlayCanvas 内置射线-UI 交集检测
-- 为 `VrVoicePanel` 按钮添加 `selectstart` 事件监听
-- 射线指向按钮并按下扳机时自动触发点击
+**VR 手柄 GLB 模型替换**、**射线可视化**、**射线-按钮交互**
 
 ### 2026-05-09
 
-**VrController 重构**：
-- 修复 `handedness` 为 `undefined` 的时序问题
-- 将左右手检测移至 `update()` 循环中
-- 符合 PlayCanvas 官方 vr-controllers 示例推荐模式
-- Y 按钮索引更正为 5（Meta Quest）
-
-**VrVoicePanel Y 按钮呼出**：
-- `VrController.setYButtonCallback()` 注册回调
-- Y 按钮按下时调用 `voicePanel.followTarget()` 重定位面板
+**VrController 重构**：修复 handedness 时序问题
 
 ### 2026-05-07
 
-**FontManager 单例模式**：
-- 新增 `src/app/font-manager.ts`
-- 使用 FontFace API 加载 TTF 字体
-- 支持中文字符集（3500_symbols.txt）
-- 修复 CanvasFont fontSize: NaN 问题
+**FontManager 单例模式**：支持中文字符集
 
 ### 2026-05-05
 
-**VR 语音面板集成**：
-- 新增 `src/asr/asr-handler.ts` - ASR iframe 通信模块
-- 新增 `src/ui/vr-voice-panel.ts` - VR 3D 语音面板组件
-- 修改 `asr/index02.html` - 添加 VR 命令处理
-- 修改 `src/main.ts` - 添加 `ElementInput` 系统支持 UI 交互
-- 修改 `src/app/index.ts` - 集成语音面板到 VR 会话
-
-**技术要点**：
-- WebXR DOM Overlay 仅支持 AR，不支持纯 VR
-- VR 中必须使用 3D world-space UI
-- `elementInput` 系统必须在 Application 创建时初始化
-- 面板跟随使用 `lookAt()` 正确朝向用户
+**VR 语音面板集成**：ASR iframe 通信、world-space UI

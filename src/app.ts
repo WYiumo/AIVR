@@ -76,7 +76,7 @@ export class App {
         this.setupVrEvents();
 
         // 测试注释
-        // await this.asrHander.init();
+        await this.asrHander.init();
 
         initstartPage(this.vrManager, this.playerController.getCamera() as pc.Entity);
 

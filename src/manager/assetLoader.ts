@@ -21,6 +21,7 @@ export class AssetManager {
             new pc.Asset('texture:voice_text_line', 'texture', {url: 'assets/textures/voice_text_line.png'}),
             new pc.Asset('texture:object_control_panel', 'texture', {url: 'assets/textures/object_control_panel.png'}),
             new pc.Asset('texture:object_control_checkbox', 'texture', {url: 'assets/textures/object_control_checkbox.png'}),
+            new pc.Asset('texture:green_triangle_identifier', 'texture', {url: 'assets/textures/green_triangle_identifier.png'}),
             new pc.Asset('material:metal', 'material', {url: 'assets/materials/metal.json'}),
             new pc.Asset('text:fontSample', 'text', {url: 'assets/font/3500_symbols.txt'})
         ];

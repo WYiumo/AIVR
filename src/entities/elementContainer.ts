@@ -108,7 +108,6 @@ export class ElementContainer {
     private setboundboxSize(aabb: pc.BoundingBox): void {
         if (!this.box) return;
         let size = 1;
-
         if (aabb) {
             const hx = aabb.halfExtents.x * 2;
             const hy = aabb.halfExtents.y * 2;

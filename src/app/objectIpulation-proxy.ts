@@ -26,7 +26,7 @@ export class ObjectIpulationProxy {
         }
     }
 
-    setObject(object: pc.Entity): void {
+    setObject(object: pc.Entity | null): void {
         this.object = object;
     }
 
